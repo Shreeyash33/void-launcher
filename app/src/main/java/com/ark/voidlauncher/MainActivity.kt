@@ -6,7 +6,6 @@ import android.content.ComponentName
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -15,9 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,14 +24,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,10 +36,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ark.voidlauncher.data.backup.BackupManager
+import com.ark.voidlauncher.data.backup.BackupPayload
+import com.ark.voidlauncher.data.backup.BackedUpItem
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.data.db.VoidDatabase
 import com.ark.voidlauncher.data.migration.DataStoreToRoomMigration
@@ -55,19 +50,23 @@ import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.placement.PlacementResolver
 import com.ark.voidlauncher.domain.placement.PlacementResult
+import com.ark.voidlauncher.system.accessibility.AccessibilityBridge
 import com.ark.voidlauncher.system.widgets.WidgetEvents
 import com.ark.voidlauncher.system.widgets.WidgetHostController
 import com.ark.voidlauncher.system.widgets.WidgetHostView
+import com.ark.voidlauncher.ui.backup.BackupScreen
+import com.ark.voidlauncher.ui.drawer.AppDrawerOverlay
 import com.ark.voidlauncher.ui.editor.AppTypographyEditorSheet
 import com.ark.voidlauncher.ui.editor.EdgeChange
 import com.ark.voidlauncher.ui.editor.EditorValidation
 import com.ark.voidlauncher.ui.editor.ItemEditorSheet
 import com.ark.voidlauncher.ui.editor.PageEditorSheet
+import com.ark.voidlauncher.ui.settings.SettingsScreen as SettingsSurface
 import com.ark.voidlauncher.ui.spatial.SpatialPageCanvas
 import com.ark.voidlauncher.ui.theme.VoidTheme
 import kotlinx.coroutines.launch
 
-private enum class Screen { HOME, DRAWER, SETTINGS, WIDGET_PICKER }
+private enum class Screen { HOME, DRAWER, SETTINGS, WIDGET_PICKER, BACKUP }
 private enum class Editor { NONE, PAGES, ITEMS, TYPOGRAPHY }
 
 class MainActivity : ComponentActivity() {
@@ -82,6 +81,11 @@ class MainActivity : ComponentActivity() {
             val repository = remember { LauncherRepository(database, prefs) }
             val appRepository = remember { AppRepository(context) }
             val widgetController = remember { WidgetHostController(context) }
+            val versionName = remember {
+                runCatching {
+                    context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                }.getOrNull() ?: "0.0.0"
+            }
 
             val apps = remember { appRepository.installedApps() }
             val pinned by prefs.pinnedApps.collectAsState(initial = emptySet())
@@ -90,12 +94,71 @@ class MainActivity : ComponentActivity() {
             val edges by repository.edges.collectAsState(initial = emptyList())
             val items by repository.items.collectAsState(initial = emptyList())
             val customizations by repository.customizations.collectAsState(initial = emptyList())
+            val homeCoord by repository.homeCoord.collectAsState(initial = Pair(0, 0))
             val homePageId by repository.homePageId.collectAsState(initial = VoidDatabase.ORIGIN_PAGE_ID)
 
             var currentPageId by remember { mutableLongStateOf(VoidDatabase.ORIGIN_PAGE_ID) }
             var screen by remember { mutableStateOf(Screen.HOME) }
             var editor by remember { mutableStateOf(Editor.NONE) }
             var message by remember { mutableStateOf<String?>(null) }
+            val accessibilityEnabled = remember { AccessibilityBridge.isEnabled(context) }
+
+            val exportLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json"),
+            ) { uri ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                scope.launch {
+                    val payload = BackupPayload(
+                        pages = pages,
+                        edges = edges,
+                        items = items.mapNotNull { item ->
+                            val page = pages.firstOrNull { it.pageId == item.pageId } ?: return@mapNotNull null
+                            BackedUpItem(
+                                pageCoordX = page.coordX,
+                                pageCoordY = page.coordY,
+                                itemType = item.itemType,
+                                col = item.col,
+                                row = item.row,
+                                colSpan = item.colSpan,
+                                rowSpan = item.rowSpan,
+                                referenceId = if (item.itemType == GridItemType.WIDGET) {
+                                    item.referenceId.removePrefix("placeholder:")
+                                } else {
+                                    item.referenceId
+                                },
+                                allowOverlap = item.allowOverlap,
+                            )
+                        },
+                        customizations = customizations,
+                        homeCoordX = homeCoord.first,
+                        homeCoordY = homeCoord.second,
+                        theme = themeMode.name,
+                    )
+                    message = runCatching {
+                        BackupManager.writeToUri(context, uri, payload)
+                        "BACKUP EXPORTED"
+                    }.getOrElse { "EXPORT FAILED" }
+                }
+            }
+
+            val importLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument(),
+            ) { uri ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                scope.launch {
+                    val payload = runCatching { BackupManager.readFromUri(context, uri) }
+                        .getOrNull()
+                    if (payload == null) {
+                        message = "INVALID OR UNSUPPORTED BACKUP FILE"
+                    } else {
+                        message = if (runCatching { repository.restore(payload) }.isSuccess) {
+                            "BACKUP RESTORED"
+                        } else {
+                            "RESTORE FAILED"
+                        }
+                    }
+                }
+            }
 
             val bindLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.StartActivityForResult(),
@@ -198,22 +261,41 @@ class MainActivity : ComponentActivity() {
                             onEditItems = { editor = Editor.ITEMS },
                         )
 
-                        Screen.DRAWER -> DrawerScreen(
+                        Screen.DRAWER -> AppDrawerOverlay(
                             apps = apps,
                             pinned = pinned,
+                            favorites = customizations.filter { it.isFavorite }
+                                .map { it.packageName }.toSet(),
+                            hidden = customizations.filter { it.isHidden }
+                                .map { it.packageName }.toSet(),
                             onBack = { screen = Screen.HOME },
                             onLaunch = { appRepository.launch(it) },
                             onTogglePin = { scope.launch { prefs.togglePinned(it) } },
+                            onCustomize = { editor = Editor.TYPOGRAPHY },
                         )
 
-                        Screen.SETTINGS -> SettingsScreen(
+                        Screen.SETTINGS -> SettingsSurface(
                             themeMode = themeMode,
+                            versionName = versionName,
+                            accessibilityEnabled = accessibilityEnabled,
                             onBack = { screen = Screen.HOME },
                             onThemeChange = { scope.launch { prefs.setTheme(it) } },
                             onEditPages = { editor = Editor.PAGES },
                             onEditItems = { editor = Editor.ITEMS },
                             onEditTypography = { editor = Editor.TYPOGRAPHY },
                             onAddWidget = ::openWidgetPicker,
+                            onExport = { exportLauncher.launch("voidlauncher-backup.json") },
+                            onImport = { importLauncher.launch(arrayOf("application/json")) },
+                            onAccessibilityToggle = { enabled ->
+                                if (enabled) AccessibilityBridge.openSettings(context)
+                            },
+                        )
+
+                        Screen.BACKUP -> BackupScreen(
+                            status = message,
+                            onExport = { exportLauncher.launch("voidlauncher-backup.json") },
+                            onImport = { importLauncher.launch(arrayOf("application/json")) },
+                            onBack = { screen = Screen.SETTINGS },
                         )
 
                         Screen.WIDGET_PICKER -> WidgetPickerScreen(
@@ -449,7 +531,7 @@ private fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
-                    Text("WIDGET UNAVAILABLE", style = MaterialTheme.typography.labelSmall)
+                    Text("WIDGET NEEDS REBIND", style = MaterialTheme.typography.labelSmall)
                 }
             },
             modifier = Modifier.fillMaxSize(),
@@ -488,125 +570,6 @@ private fun HomeScreen(
 }
 
 @Composable
-private fun DrawerScreen(
-    apps: List<AppInfo>,
-    pinned: Set<String>,
-    onBack: () -> Unit,
-    onLaunch: (String) -> Unit,
-    onTogglePin: (String) -> Unit,
-) {
-    var query by remember { mutableStateOf("") }
-    val visibleApps = remember(apps, query) {
-        val search = query.trim()
-        if (search.isEmpty()) apps else apps.filter {
-            it.label.contains(search, ignoreCase = true) ||
-                it.packageName.contains(search, ignoreCase = true)
-        }
-    }
-
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 28.dp)) {
-        Text("BACK", style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.clickable(onClick = onBack).padding(8.dp))
-        Spacer(Modifier.height(16.dp))
-        TextField(
-            value = query,
-            onValueChange = { query = it },
-            placeholder = { Text("Search apps") },
-            singleLine = true,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                focusedIndicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-                unfocusedIndicatorColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f),
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(8.dp))
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            items(visibleApps, key = { it.packageName }) { app ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable { onLaunch(app.packageName) }
-                        .padding(vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(app.label, style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f))
-                    Text(
-                        text = if (app.packageName in pinned) "REMOVE" else "PIN",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.clickable { onTogglePin(app.packageName) }.padding(8.dp),
-                    )
-                }
-                HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsScreen(
-    themeMode: ThemeMode,
-    onBack: () -> Unit,
-    onThemeChange: (ThemeMode) -> Unit,
-    onEditPages: () -> Unit,
-    onEditItems: () -> Unit,
-    onEditTypography: () -> Unit,
-    onAddWidget: () -> Unit,
-) {
-    val context = LocalContext.current
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 40.dp)) {
-        Text("BACK", style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.clickable(onClick = onBack).padding(vertical = 8.dp))
-        Spacer(Modifier.height(24.dp))
-
-        Text("THEME", style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-            ThemeMode.entries.forEach { mode ->
-                Text(
-                    text = mode.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (mode == themeMode) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f),
-                    modifier = Modifier.clickable { onThemeChange(mode) }.padding(vertical = 6.dp),
-                )
-            }
-        }
-
-        Spacer(Modifier.height(32.dp))
-        Text("MAP", style = MaterialTheme.typography.labelMedium)
-        SettingsAction("EDIT PAGES", onEditPages)
-        SettingsAction("EDIT ITEMS", onEditItems)
-        SettingsAction("APP TYPOGRAPHY", onEditTypography)
-        SettingsAction("ADD WIDGET", onAddWidget)
-
-        Spacer(Modifier.height(32.dp))
-        Text(
-            text = "SET AS HOME",
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.clickable {
-                context.startActivity(
-                    Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }.padding(vertical = 10.dp),
-        )
-
-        Spacer(Modifier.weight(1f))
-        Text("Void Launcher 0.2.0", style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f))
-    }
-}
-
-@Composable
-private fun SettingsAction(label: String, onClick: () -> Unit) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Light),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 10.dp),
-    )
-}
-
-@Composable
 private fun WidgetPickerScreen(
     widgetController: WidgetHostController,
     onPick: (ComponentName) -> Unit,
@@ -614,12 +577,16 @@ private fun WidgetPickerScreen(
 ) {
     val context = LocalContext.current
     val providers = remember { widgetController.installedProviders() }
-    Column(modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp)) {
+    androidx.compose.foundation.layout.Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp),
+    ) {
         Text("BACK", style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.clickable(onClick = onBack).padding(8.dp))
-        Spacer(Modifier.height(20.dp))
+        androidx.compose.foundation.layout.Spacer(
+            Modifier.height(20.dp)
+        )
         Text("CHOOSE A WIDGET", style = MaterialTheme.typography.labelMedium)
-        Spacer(Modifier.height(12.dp))
+        androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
         if (providers.isEmpty()) {
             Text("No widget providers available.", style = MaterialTheme.typography.bodyMedium)
         } else {
