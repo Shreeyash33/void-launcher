@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.ThemeMode
 import com.ark.voidlauncher.domain.OrientationMode
+import com.ark.voidlauncher.ui.theme.GlassPanel
 
 private enum class SettingsConfirmation { NONE, ACCESSIBILITY, IMPORT }
 
@@ -93,11 +94,17 @@ fun SettingsScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        Column(
+        GlassPanel(
             modifier = Modifier
                 .weight(1f)
-                .verticalScroll(rememberScrollState()),
+                .padding(vertical = 4.dp),
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+            ) {
             SectionLabel("THEME")
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -207,6 +214,7 @@ fun SettingsScreen(
                     Intent(Settings.ACTION_HOME_SETTINGS)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 )
+            }
             }
         }
 
