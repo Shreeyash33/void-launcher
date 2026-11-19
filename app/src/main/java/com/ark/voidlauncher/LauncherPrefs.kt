@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -19,6 +20,8 @@ class LauncherPrefs(private val context: Context) {
     companion object {
         private val PINNED = stringSetPreferencesKey("pinned_packages")
         private val THEME = stringPreferencesKey("theme")
+        private val HOME_X = intPreferencesKey("home_coord_x")
+        private val HOME_Y = intPreferencesKey("home_coord_y")
 
         private const val THEME_SYSTEM = "system"
         private const val THEME_DARK = "dark"
@@ -35,6 +38,18 @@ class LauncherPrefs(private val context: Context) {
             THEME_DARK -> ThemeMode.DARK
             THEME_LIGHT -> ThemeMode.LIGHT
             else -> ThemeMode.SYSTEM
+        }
+    }
+
+    /** Configurable home coordinate. Defaults to the origin (0, 0). */
+    val homeCoord: Flow<Pair<Int, Int>> = context.dataStore.data.map { prefs ->
+        Pair(prefs[HOME_X] ?: 0, prefs[HOME_Y] ?: 0)
+    }
+
+    suspend fun setHomeCoord(x: Int, y: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[HOME_X] = x
+            prefs[HOME_Y] = y
         }
     }
 
