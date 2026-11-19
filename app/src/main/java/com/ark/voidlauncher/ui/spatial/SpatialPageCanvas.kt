@@ -27,6 +27,7 @@ import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.ui.grid.PageGrid
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
@@ -47,6 +48,7 @@ fun SpatialPageCanvas(
     homePageId: Long,
     onPageChanged: (Long) -> Unit,
     onHomeRequested: () -> Unit,
+    onAppClick: (packageName: String) -> Unit,
     widgetContent: @Composable (GridItemEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -125,7 +127,8 @@ fun SpatialPageCanvas(
                         },
                     ) { _, dragAmount ->
                         dragTotal += dragAmount
-                        translation.snapTo(dragTotal)
+                        val newTranslation = dragTotal
+                        scope.launch { translation.snapTo(newTranslation) }
                     }
                 }
                 .pointerInput(onHomeRequested) {
