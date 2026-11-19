@@ -40,6 +40,7 @@ import kotlin.math.abs
  * emits a long-press haptic. A double tap always calls [onHomeRequested].
  */
 @Composable
+@Suppress("UNUSED_PARAMETER")
 fun SpatialPageCanvas(
     pages: List<PageInfo>,
     edges: List<EdgeInfo>,
