@@ -1,7 +1,7 @@
 # Void Launcher — Design Notes
 
 **Last updated:** 2026-11-19  
-**Status:** Implementation complete through P7 (spatial awareness) and v0.5.2. Toolchain unchanged; see §9 for the full session log. These notes also exist so the design survives session compaction.
+**Status:** Implementation complete through P11 (themes, orientation, backgrounds, polish) and v0.6.0; release closeout in progress. Toolchain unchanged; see §9 for the full session log. These notes also exist so the design survives session compaction.
 
 ---
 
@@ -176,10 +176,15 @@ Each phase is independently reviewable. Ask for one or two at a time.
 | P2 ✅ | Spatial canvas + grid | 4-way swipe pager, 10x20 grid, non-overlapping app shortcuts; bounce + haptic on no edge | P0 |
 | P2a ✅ | Theme foundation | Dark/light/system tokens audited; all homepage surfaces use MaterialTheme tokens; `CustomPalette` extension point reserved (editor itself deferred) | P0 |
 | P3 ✅ | Editor | Wire/remove edges, set home coordinate, place/resize items, edit nickname/typography; validation prevents stranded pages | P0, P2 |
-| P4 | Drawer + settings | Text drawer with search and pin; theme switch; home/settings navigation | P0 |
-| P5 | Backup/restore | Versioned JSON export/import via SAF, including widget placeholders | P0, P3 |
-| P6 | Accessibility | Opt-in service, gesture zones, global actions; no reflection | P2 |
+| P4 ✅ | Drawer + settings | Text drawer with search and pin; theme switch; home/settings navigation | P0 |
+| P5 ✅ | Backup/restore | Versioned JSON export/import via SAF, including widget placeholders | P0, P3 |
+| P6 ✅ | Accessibility | Opt-in service, gesture zones, global actions; no reflection | P2 |
 | P7 ✅ | Polish | Themes, transitions, empty states, device-test fixes | P1-P6 |
+| P8 ✅ | Themes | Soft light/dark schemes, CUSTOM mode, editable persisted palette, glass/skeuo tokens | P7 |
+| P9 ✅ | Orientation | PORTRAIT default; portrait/landscape/auto setting; manifest first frame portrait | P7 |
+| P10 ✅ | Backgrounds | Per-page/global COLOR, GRADIENT, IMAGE backgrounds; Room v3; backup fields | P8, P0 |
+| P11 ✅ | Visual polish | Glass HUD/nav/settings, themed system bars, Canvas-drawn direction arrows | P8 |
+| P12 ✅ | Direct canvas editing | Long-press to edit on canvas; dotted grid guide; drag, resize, remove; empty/nav exit | P2, P7 |
 
 Parallelism: after P0, **P1, P2, and P4 can run together**. Then **P3, P5, and P6** can overlap. P7 integrates and polishes.
 
@@ -223,3 +228,50 @@ Parallelism: after P0, **P1, P2, and P4 can run together**. Then **P3, P5, and P
    - **2026-11-19 (v0.5.1 — swipe/Y-axis bug fixes):** User reported swipe directions were mirrored and the map Y axis inverted. Root cause: `SpatialPageCanvas` looked up edges using the gesture direction directly (right→`RIGHT`→`(1,0)`), and `PageOverview` laid out increasing `coordY` downward. Fixed by centralising the convention in `domain/Model.kt`: `SwipeDirection.edgeForGesture` (carousel paging — X mirrored in the stored-edge lookup, Y unchanged) and `swipeDestination` (X-right / Y-up), now consumed by the canvas, HUD, and overview so they cannot drift. Also fixed invisible overview nav labels (`background()` does not set `LocalContentColor`; added explicit `onSurface`), and gave nav buttons an explicit 56dp touch target. Added `SpatialNavigationTest` (6 tests) locking the convention. Commits `8760fc5`, `7147410`, `82862f4`, all pushed. No DB migration: stored directed edges and schema are unchanged — only gesture→edge lookup changed.
    - **2026-11-19 (v0.5.2 final):** Version bumped to `versionCode = 7`, `versionName = "0.5.2"`. Full verification with `.\gradlew --stop` then `.\gradlew --no-daemon --max-workers=1 testDebugUnitTest assembleDebug assembleRelease`: **BUILD SUCCESSFUL**, **35/35 tests** (9 graph + 14 placement + 6 backup + 6 spatial), 0 failures/errors. APK at `D:\projects\Void Launcher\downloadable\voidlauncher v0.5.2 - release.apk` (~6.47 MB), debug-signed (Android Debug certificate verified with `apksigner`); `aapt` confirms `versionCode='7'`, `versionName='0.5.2'`.
    - **2026-11-19 (v0.5.2 real-device verification, FINAL):** Installed and drove the UI on the Infinix X669C via ADB. Verified HUD labels: top `0,-1`, bottom `0,1`, left `1,0`, right `-1,0`. Verified swipes: RIGHT→`PAGE -1,0`, LEFT→`PAGE 0,0`, UP→`PAGE 0,-1`, DOWN from `(0,-1)`→`PAGE 0,0`, and DOWN from HOME→`PAGE 0,1`, UP back→`PAGE 0,0`. Map renders `(0,1)` above `(0,0)` and `(0,-1)` below. Final logcat scan: no app errors. Phone settings restored (`accelerometer_rotation` back to `1`); theme left on SYSTEM; app left on a clean HOME. Working tree clean, all commits pushed to `origin/main`.
+
+---
+
+## 10. P8–P11 / v0.6.0 results
+
+Frozen contracts live in `docs/P8_P11_CONTRACTS.md` (`62a7c99`). The pinned toolchain and dependency set did not change: Kotlin 1.9.24, KSP 1.9.24-1.0.20, Room 2.6.1, AGP 8.4.2, Gradle 8.7, compileSdk 34, Compose UI 1.6.7 / Material 3 1.2.1, JDK 17. Android 10 (API 29) remains supported; `minSdk` is still 24.
+
+### 10.1 P8 — Theme system
+
+- `ThemeMode` gained `CUSTOM`; system/dark/light remain. The light scheme is a soft warm paper palette (no pure white/black) and the dark scheme has stronger surface/secondary tokens for depth.
+- `CustomPalette` persists as eight DataStore hex keys (`custom_bg`, `custom_surface`, `custom_surface_variant`, `custom_on_bg`, `custom_on_surface`, `custom_primary`, `custom_secondary`, `custom_outline`). `CustomThemeEditorSheet` validates all fields and offers dark/light presets. Theme selection and editing are reachable from the theme picker and settings.
+- `VoidStyle` / `LocalVoidStyle` and `GlassPanel` provide scheme-derived glass/skeuo tokens. `GlassPanel` is visual-only (no pointer-input consumption), so child taps still work; no `RenderEffect` blur is used, which avoids API 31+ requirements and CRASH risk on older devices.
+- **HOME badge contrast fix (`56a546d`):** `Theme.kt` derives `onPrimary`, `onSecondary`, and `onSurfaceVariant` from the relative luminance of the matching user-chosen fill (`readableOn`). `NavigationHud` renders the HOME tag with `onPrimary` on `primary`; custom fills can no longer leave the badge with the opposite theme's ink.
+- Backup v1 gained optional `theme` and `customPalette` fields with safe defaults for older files.
+
+### 10.2 P9 — Orientation
+
+- `OrientationMode { PORTRAIT, LANDSCAPE, AUTO }` persists under DataStore key `"orientation"`; PORTRAIT is the default.
+- `MainActivity` applies `requestedOrientation` immediately on a setting change and also replays it from the flow (`7c8bb25`) so a DataStore emission during a configuration change cannot be lost. `AndroidManifest.xml` starts `MainActivity` in portrait for the first frame; no `configChanges` were added.
+- Settings exposes the three-way ORIENTATION row; backup carries an optional `orientation` string defaulting to `PORTRAIT`.
+
+### 10.3 P10 — Backgrounds
+
+- Room v3 added the `backgrounds` table via `MIGRATION_2_3` (create only, no seeding). `BackgroundRepository` owns GLOBAL/PAGE scopes, COLOR/GRADIENT/IMAGE kinds, gradient-stop codec/validation, image bytes, and internal image storage under `filesDir/backgrounds/<token>.img`; raw `content://` URIs are never persisted.
+- `BackgroundResolver` picks a page-specific background before the global one. `PageBackgroundRenderer` paints solid fill, multi-stop linear gradient, or cropped image with a theme-derived scrim to keep HUD text legible. `BackgroundEditorSheet` supports scope/kind selectors, hex fields, gradient stops/angle, SAF image picking, and delete.
+- The renderer is a stationary first child of `SpatialPageCanvas`, so backgrounds do not slide with the translating page during swipes.
+- Fixes included gradient defaults and moving backgrounds between GLOBAL and THIS PAGE scopes (`ed9a0f5`) and image-byte handling (`1b7f267`).
+- Backup v1 gained an optional `backgrounds` array. Image backgrounds carry `imageToken` plus base64 bytes with a size cap; restore remaps page coordinates to regenerated Room page IDs.
+
+### 10.4 P11 — Visual polish
+
+- Navigation HUD, home bottom nav, settings, and system bars use `GlassPanel` / theme-derived surfaces (`51994a4`, `81b0ab2`, `20dd059`). Themed status/navigation bars follow the active scheme.
+- Direction arrows are drawn on `Canvas` instead of Unicode arrow glyphs (`b55f68d`); device verification counts `content-desc="SWIPE"` arrows (4 on HOME, 20 on MAP) with zero Unicode arrow glyphs.
+
+### 10.5 Direct on-canvas editing
+
+- Long-pressing a grid item enters editor mode for that item. A `GridGuide` draws dotted lattice lines and dots at intersections; page swipes, double-tap, and overview long-press are suspended while editing.
+- The selected item gets a themed selection border. Dragging computes a target `(col,row)` from the pointer delta and commits through `PlacementResolver.resolve` / `resolvePlacement`, preserving all placement rules (in-bounds positive spans, app-shortcut non-overlap, widget overlap only when allowed, and single-hop overflow through directed edges). One-hop page changes use `LauncherRepository.placeItem`.
+- A contextual bar offers `RESIZE` and `REMOVE` while an item is selected and `DRAG TO MOVE` otherwise. `ItemResizeDialog` validates column/row spans against the page dimensions. The numeric `ItemEditorSheet` callbacks were routed through the same validated helpers, so the two editors cannot disagree.
+- Tapping empty canvas space or any of the three bottom nav buttons exits the editor without opening that destination. Android Back closes the resize dialog first, then the editor.
+- On-device verification on the Infinix X669C: long-press showed `DRAG TO MOVE`, `RESIZE`, `REMOVE`; dragging moved a widget from `AT 0,0` to `AT 2,2`; applying a 5×3 resize changed its bounds to `[144,218][504,437]`; empty-space tap and `APPS` both exited; the widget was restored to `AT 0,0`, `[0,72][288,218]`, span 4×2. A temporary screenshot pixel comparison found average grid-line/intersection difference 4.3 versus 0.72 at control points, confirming the guide is rendered.
+
+### 10.6 Verification and closeout
+
+- Compile/unit check after the editor work: `.\gradlew --stop` then `.\gradlew --no-daemon --max-workers=1 testDebugUnitTest assembleDebug` — **BUILD SUCCESSFUL**.
+- P10 backup import was verified on the device from `Download/voidlauncher-backup (1).json` (3084 bytes; includes `version=1`, `theme=CUSTOM`, `orientation=PORTRAIT`, `customPalette`, and one IMAGE background with base64 bytes). Settings reported **BACKUP RESTORED**.
+- `app/build.gradle.kts` is at `versionCode = 8`, `versionName = "0.6.0"`. Final low-memory `testDebugUnitTest assembleDebug assembleRelease`, release APK copy, final device pass, and push are the remaining closeout steps.
