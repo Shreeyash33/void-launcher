@@ -18,6 +18,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -54,11 +55,13 @@ import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.data.db.VoidDatabase
 import com.ark.voidlauncher.data.migration.DataStoreToRoomMigration
 import com.ark.voidlauncher.data.repository.LauncherRepository
+import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.OrientationMode
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.background.BackgroundKind
 import com.ark.voidlauncher.domain.background.BackgroundResolver
@@ -78,7 +81,6 @@ import com.ark.voidlauncher.ui.background.PageBackgroundRenderer
 import com.ark.voidlauncher.ui.customtheme.CustomThemeEditorSheet
 import com.ark.voidlauncher.ui.drawer.AppDrawerOverlay
 import com.ark.voidlauncher.ui.editor.AppTypographyEditorSheet
-import com.ark.voidlauncher.ui.hud.NavigationHud
 import com.ark.voidlauncher.ui.overview.PageOverview
 import com.ark.voidlauncher.ui.editor.EdgeChange
 import com.ark.voidlauncher.ui.editor.EditorValidation
@@ -128,6 +130,7 @@ class MainActivity : ComponentActivity() {
             val customizations by repository.customizations.collectAsState(initial = emptyList())
             val homeCoord by repository.homeCoord.collectAsState(initial = Pair(0, 0))
             val homePageId by repository.homePageId.collectAsState(initial = VoidDatabase.ORIGIN_PAGE_ID)
+            val appDrawerPageId by repository.appDrawerPageId.collectAsState(initial = null)
 
             var currentPageId by remember { mutableLongStateOf(VoidDatabase.ORIGIN_PAGE_ID) }
             var screen by remember { mutableStateOf(Screen.HOME) }
@@ -137,7 +140,6 @@ class MainActivity : ComponentActivity() {
             var resizeItemId by remember { mutableStateOf<Long?>(null) }
             var message by remember { mutableStateOf<String?>(null) }
             var overview by remember { mutableStateOf(false) }
-            var wallHit by remember { mutableStateOf<SwipeDirection?>(null) }
             var themePicker by remember { mutableStateOf(false) }
             var customThemeEditor by remember { mutableStateOf(false) }
             var backgroundEditor by remember { mutableStateOf(false) }
@@ -506,41 +508,70 @@ class MainActivity : ComponentActivity() {
                 ThemedSystemBars(darkTheme)
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (screen) {
-                        Screen.HOME -> HomeScreen(
-                            pages = pages,
-                            edges = edges,
-                            items = items,
-                            currentPageId = currentPageId,
-                            homePageId = homePageId,
-                            widgetController = widgetController,
-                            onPageChanged = { currentPageId = it },
-                            onHomeRequested = { currentPageId = homePageId },
-                            onAppClick = { appRepository.launch(it) },
-                            onOpenDrawer = { screen = Screen.DRAWER },
-                            onOpenSettings = { screen = Screen.SETTINGS },
-                            onEditItems = { editor = Editor.ITEMS },
-                            onLongPress = { overview = true },
-                            onWallHit = { wallHit = it },
-                            wallHit = wallHit,
-                            onWallHitCleared = { wallHit = null },
-                            onOpenOverview = { overview = true },
-                            canvasEditing = canvasEditing,
-                            selectedCanvasItemId = selectedCanvasItemId,
-                            onSelectCanvasItem = ::selectCanvasItem,
-                            onMoveCanvasItem = { item, col, row ->
-                                commitCanvasPlacement(item, col, row)
-                            },
-                            onResizeCanvasItem = { resizeItemId = it.itemId },
-                            onRemoveCanvasItem = ::removeCanvasItem,
-                            onExitCanvasEditor = ::exitCanvasEditor,
-                            pageBackground = {
-                                PageBackgroundRenderer(
-                                    background = effectiveBackground,
-                                    image = backgroundImage,
-                                    modifier = Modifier.fillMaxSize(),
+                        Screen.HOME -> {
+                            val currentPage = pages.firstOrNull { it.pageId == currentPageId }
+                            if (currentPage?.pageType == PageType.APP_DRAWER) {
+                                AppDrawerPage(
+                                    apps = apps,
+                                    pinned = pinned,
+                                    favorites = customizations.filter { it.isFavorite }
+                                        .map { it.packageName }.toSet(),
+                                    hidden = customizations.filter { it.isHidden }
+                                        .map { it.packageName }.toSet(),
+                                    coordX = currentPage.coordX,
+                                    coordY = currentPage.coordY,
+                                    onBack = { currentPageId = homePageId },
+                                    onLaunch = { appRepository.launch(it) },
+                                    onTogglePin = { scope.launch { prefs.togglePinned(it) } },
+                                    onCustomize = { editor = Editor.TYPOGRAPHY },
                                 )
-                            },
-                        )
+                            } else {
+                                HomeScreen(
+                                    pages = pages,
+                                    edges = edges,
+                                    items = items,
+                                    currentPageId = currentPageId,
+                                    homePageId = homePageId,
+                                    widgetController = widgetController,
+                                    onPageChanged = { currentPageId = it },
+                                    onHomeRequested = { currentPageId = homePageId },
+                                    onAppClick = { appRepository.launch(it) },
+                                    onOpenDrawerPage = {
+                                        exitCanvasEditor()
+                                        appDrawerPageId?.let { currentPageId = it }
+                                    },
+                                    onOpenSettings = {
+                                        exitCanvasEditor()
+                                        screen = Screen.SETTINGS
+                                    },
+                                    onEditItems = {
+                                        exitCanvasEditor()
+                                        editor = Editor.ITEMS
+                                    },
+                                    onOpenWidgetPicker = {
+                                        exitCanvasEditor()
+                                        overview = true
+                                    },
+                                    onLongPress = { overview = true },
+                                    canvasEditing = canvasEditing,
+                                    selectedCanvasItemId = selectedCanvasItemId,
+                                    onSelectCanvasItem = ::selectCanvasItem,
+                                    onMoveCanvasItem = { item, col, row ->
+                                        commitCanvasPlacement(item, col, row)
+                                    },
+                                    onResizeCanvasItem = { resizeItemId = it.itemId },
+                                    onRemoveCanvasItem = ::removeCanvasItem,
+                                    onExitCanvasEditor = ::exitCanvasEditor,
+                                    pageBackground = {
+                                        PageBackgroundRenderer(
+                                            background = effectiveBackground,
+                                            image = backgroundImage,
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    },
+                                )
+                            }
+                        }
 
                         Screen.DRAWER -> AppDrawerOverlay(
                             apps = apps,
@@ -981,14 +1012,11 @@ private fun HomeScreen(
     onPageChanged: (Long) -> Unit,
     onHomeRequested: () -> Unit,
     onAppClick: (String) -> Unit,
-    onOpenDrawer: () -> Unit,
+    onOpenDrawerPage: () -> Unit,
     onOpenSettings: () -> Unit,
     onEditItems: () -> Unit,
+    onOpenWidgetPicker: () -> Unit,
     onLongPress: () -> Unit = {},
-    onWallHit: (SwipeDirection) -> Unit = {},
-    wallHit: SwipeDirection? = null,
-    onWallHitCleared: () -> Unit = {},
-    onOpenOverview: () -> Unit = {},
     canvasEditing: Boolean = false,
     selectedCanvasItemId: Long? = null,
     onSelectCanvasItem: (GridItemEntity) -> Unit = {},
@@ -999,9 +1027,13 @@ private fun HomeScreen(
     pageBackground: @Composable () -> Unit = {},
 ) {
     val page = pages.firstOrNull { it.pageId == currentPageId } ?: return
-    val pageItems = items.filter { it.pageId == currentPageId }
     val selectedCanvasItem = items.firstOrNull { it.itemId == selectedCanvasItemId }
     var lastItemTouch by remember { mutableStateOf(0L) }
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(canvasEditing) {
+        if (!canvasEditing) menuExpanded = false
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         SpatialPageCanvas(
@@ -1016,7 +1048,7 @@ private fun HomeScreen(
             onLongPress = {
                 if (System.nanoTime() - lastItemTouch > 300_000_000L) onLongPress()
             },
-            onWallHit = onWallHit,
+            onWallHit = {},
             editing = canvasEditing,
             selectedItemId = selectedCanvasItemId,
             onSelectItem = onSelectCanvasItem,
@@ -1024,60 +1056,73 @@ private fun HomeScreen(
             onItemTouched = { lastItemTouch = System.nanoTime() },
             onEmptyTap = onExitCanvasEditor,
             widgetContent = { item ->
-                val widgetId = item.referenceId.toIntOrNull()
-                if (widgetId != null) {
-                    WidgetHostView(
-                        controller = widgetController,
-                        appWidgetId = widgetId,
-                        modifier = Modifier.fillMaxSize(),
+                val builtIn = item.widgetKind ?: BuiltInWidgets.fromReference(item.referenceId)
+                if (builtIn != null) {
+                    Text(
+                        text = BuiltInWidgets.label(builtIn),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 } else {
-                    Text("WIDGET NEEDS REBIND", style = MaterialTheme.typography.labelSmall)
+                    val widgetId = item.referenceId.toIntOrNull()
+                    if (widgetId != null) {
+                        WidgetHostView(
+                            controller = widgetController,
+                            appWidgetId = widgetId,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    } else {
+                        Text("WIDGET NEEDS REBIND", style = MaterialTheme.typography.labelSmall)
+                    }
                 }
             },
             pageBackground = pageBackground,
             modifier = Modifier.fillMaxSize(),
         )
 
-        Text(
-            text = page.title.uppercase(),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(20.dp),
-        )
-
+        // A normal page shows nothing but its coordinates. Everything else is
+        // reachable by long-press gestures or the system Home button.
         GlassPanel(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(24.dp)
-                .fillMaxWidth(),
+                .align(Alignment.TopCenter)
+                .padding(top = 12.dp),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                Text("APPS", style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.clickable(
-                        onClick = if (canvasEditing) onExitCanvasEditor else onOpenDrawer,
-                    ).padding(8.dp))
-                Text("EDIT", style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.clickable(
-                        onClick = if (canvasEditing) onExitCanvasEditor else onEditItems,
-                    ).padding(8.dp))
-                Text("SETTINGS", style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.clickable(
-                        onClick = if (canvasEditing) onExitCanvasEditor else onOpenSettings,
-                    ).padding(8.dp))
-            }
+            Text(
+                text = "${page.coordX},${page.coordY}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
 
         if (canvasEditing) {
             GlassPanel(
                 modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(12.dp),
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "MENU",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier
+                            .clickable { menuExpanded = !menuExpanded }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                    if (menuExpanded) {
+                        EditorMenuItem("APPS", onOpenDrawerPage)
+                        EditorMenuItem("EDIT", onEditItems)
+                        EditorMenuItem("SETTINGS", onOpenSettings)
+                        EditorMenuItem("WIDGETS", onOpenWidgetPicker)
+                    }
+                }
+            }
+
+            GlassPanel(
+                modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 96.dp)
+                    .padding(bottom = 24.dp)
                     .fillMaxWidth(),
             ) {
                 Row(
@@ -1118,23 +1163,53 @@ private fun HomeScreen(
                 }
             }
         }
+    }
+}
 
-        if (pageItems.isEmpty()) {
-            Text(
-                text = "SWIPE TO MOVE · DOUBLE-TAP FOR HOME\nLONG-PRESS FOR MAP",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
-                modifier = Modifier.align(Alignment.Center),
-            )
-        }
+@Composable
+private fun EditorMenuItem(label: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    )
+}
 
-        NavigationHud(
-            page = page,
-            edges = edges,
-            wallHit = wallHit,
-            onWallHitCleared = onWallHitCleared,
-            onOpenOverview = onOpenOverview,
-            modifier = Modifier.matchParentSize(),
+@Composable
+private fun AppDrawerPage(
+    apps: List<AppInfo>,
+    pinned: Set<String>,
+    favorites: Set<String>,
+    hidden: Set<String>,
+    coordX: Int,
+    coordY: Int,
+    onBack: () -> Unit,
+    onLaunch: (packageName: String) -> Unit,
+    onTogglePin: (packageName: String) -> Unit,
+    onCustomize: (packageName: String) -> Unit,
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        AppDrawerOverlay(
+            apps = apps,
+            pinned = pinned,
+            favorites = favorites,
+            hidden = hidden,
+            onBack = onBack,
+            onLaunch = onLaunch,
+            onTogglePin = onTogglePin,
+            onCustomize = onCustomize,
+        )
+        Text(
+            text = "$coordX,$coordY",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(20.dp),
         )
     }
 }
