@@ -15,6 +15,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -86,6 +87,7 @@ import com.ark.voidlauncher.ui.editor.PageEditorSheet
 import com.ark.voidlauncher.ui.settings.SettingsScreen as SettingsSurface
 import com.ark.voidlauncher.ui.spatial.SpatialPageCanvas
 import com.ark.voidlauncher.ui.theme.ThemePickerSheet
+import com.ark.voidlauncher.ui.theme.ThemedSystemBars
 import com.ark.voidlauncher.ui.theme.VoidTheme
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -407,7 +409,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            val systemDark = isSystemInDarkTheme()
+            val darkTheme = when (themeMode) {
+                ThemeMode.DARK -> true
+                ThemeMode.LIGHT -> false
+                ThemeMode.SYSTEM, ThemeMode.CUSTOM -> systemDark
+            }
             VoidTheme(themeMode, customPalette) {
+                ThemedSystemBars(darkTheme)
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (screen) {
                         Screen.HOME -> HomeScreen(
