@@ -322,13 +322,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            DisposableEffect(orientationMode) {
-                requestedOrientation = when (orientationMode) {
-                    OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-                    OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                    OrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            // Collect the flow directly rather than reacting to collectAsState's
+            // initial value: on an activity recreation that initial PORTRAIT would be
+            // applied before the persisted value arrives, flipping the rotation back
+            // and recreating the activity again in a loop. DataStore replays the
+            // current value immediately, so this applies exactly the saved mode.
+            LaunchedEffect(Unit) {
+                prefs.orientationMode.collect { mode ->
+                    requestedOrientation = when (mode) {
+                        OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                        OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        OrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    }
                 }
-                onDispose { }
             }
 
             LaunchedEffect(Unit) {
