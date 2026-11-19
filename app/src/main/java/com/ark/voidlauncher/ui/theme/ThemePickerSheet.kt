@@ -15,14 +15,16 @@ import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.ThemeMode
 
 /**
- * Small, text-only theme chooser used by the overview's THEMES entry point.
- * The custom palette hook in [VoidTheme] is intentionally not exposed here yet;
- * only the three shipped schemes are selectable.
+ * Text-only theme chooser used by the overview's THEMES entry point.
+ * Rows come from [ThemeMode.entries], so CUSTOM appears automatically once the
+ * enum gains it. Selecting CUSTOM applies the saved palette; editing it is a
+ * separate explicit action so a tap on the row never opens the editor by surprise.
  */
 @Composable
 fun ThemePickerSheet(
     current: ThemeMode,
     onSelect: (ThemeMode) -> Unit,
+    onEditCustom: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -56,9 +58,17 @@ fun ThemePickerSheet(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("CLOSE", style = MaterialTheme.typography.labelLarge)
+                Text(text = "CLOSE", style = MaterialTheme.typography.labelLarge)
             }
         },
-        dismissButton = null,
+        dismissButton = {
+            TextButton(onClick = onEditCustom) {
+                Text(
+                    text = "EDIT CUSTOM THEME",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        },
     )
 }
