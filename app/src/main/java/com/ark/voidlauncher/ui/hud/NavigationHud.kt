@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.SwipeDirection
+import com.ark.voidlauncher.domain.opposite
+import com.ark.voidlauncher.domain.swipeDestination
 import kotlinx.coroutines.delay
 
 /**
@@ -123,7 +125,7 @@ fun NavigationHud(
 
             DirectionIndicator(
                 direction = SwipeDirection.UP,
-                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.UP },
+                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.UP.opposite },
                 page = page,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -131,7 +133,7 @@ fun NavigationHud(
             )
             DirectionIndicator(
                 direction = SwipeDirection.DOWN,
-                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.DOWN },
+                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.DOWN.opposite },
                 page = page,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -139,7 +141,7 @@ fun NavigationHud(
             )
             DirectionIndicator(
                 direction = SwipeDirection.LEFT,
-                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.LEFT },
+                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.LEFT.opposite },
                 page = page,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -147,7 +149,7 @@ fun NavigationHud(
             )
             DirectionIndicator(
                 direction = SwipeDirection.RIGHT,
-                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.RIGHT },
+                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.RIGHT.opposite },
                 page = page,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -244,17 +246,11 @@ private fun BoxScope.WallFlash(direction: SwipeDirection, flashAlpha: Float) {
 
 /**
  * The HUD receives no page list, so a target is shown as the adjacent coordinate
- * implied by the swipe direction (grid X right, Y down).
+ * implied by the swipe gesture (X right, Y up, paging to the opposite neighbour).
  */
-private fun neighbourLabel(page: PageInfo, direction: SwipeDirection): String {
-    val x = page.coordX
-    val y = page.coordY
-    return when (direction) {
-        SwipeDirection.UP -> "${x},${y - 1}"
-        SwipeDirection.DOWN -> "${x},${y + 1}"
-        SwipeDirection.LEFT -> "${x - 1},${y}"
-        SwipeDirection.RIGHT -> "${x + 1},${y}"
-    }
+private fun neighbourLabel(page: PageInfo, gesture: SwipeDirection): String {
+    val (x, y) = swipeDestination(page.coordX, page.coordY, gesture)
+    return "$x,$y"
 }
 
 private const val HOME_COORD_X = 0

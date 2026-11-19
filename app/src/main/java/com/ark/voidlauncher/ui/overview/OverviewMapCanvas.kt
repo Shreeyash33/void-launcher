@@ -18,7 +18,8 @@ import kotlin.math.sqrt
  * Shared geometry and edge-rendering helpers for the bird's-eye page map.
  *
  * The map is laid out on an abstract grid: a page at `(coordX, coordY)` occupies
- * one [OverviewStride] slot, with X growing right and Y growing down. All values
+ * one [OverviewStride] slot, with X growing right and Y growing up (the caller
+ * inverts screen Y when computing cell centres). All values
  * here are derived from theme tokens at the call site so dark/light/custom themes
  * need no changes in this file.
  */

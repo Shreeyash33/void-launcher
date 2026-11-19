@@ -40,7 +40,7 @@ import com.ark.voidlauncher.domain.PageInfo
  * Full-screen bird's-eye view of the page graph.
  *
  * Pages are placed on a 2D lattice from their `(coordX, coordY)` (X right, Y
- * down) and the whole map can be dragged and pinched. Pan/zoom are the only local
+ * up — positive Y renders above the origin) and the whole map can be dragged and pinched. Pan/zoom are the only local
  * state; everything else is derived from the supplied pages, edges and items. On
  * first composition the map is centred on [currentPageId] (or the first page when
  * the current id is not present). Empty and single-page maps are handled without
@@ -85,7 +85,8 @@ fun PageOverview(
         val centers = remember(pages, minCoordX, minCoordY, stridePx) {
             pages.associate { page ->
                 val mapX = page.coordX - minCoordX + OverviewMarginCells
-                val mapY = page.coordY - minCoordY + OverviewMarginCells
+                // Screen Y grows down; inverting the coordinate puts (0,1) above (0,0).
+                val mapY = maxCoordY - page.coordY + OverviewMarginCells
                 page.pageId to Offset((mapX + 0.5f) * stridePx, (mapY + 0.5f) * stridePx)
             }
         }
