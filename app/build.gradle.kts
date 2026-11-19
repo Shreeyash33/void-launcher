@@ -12,14 +12,17 @@ android {
         applicationId = "com.ark.voidlauncher"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Test release only: signed with the debug key so it installs on a phone.
+            // A store-grade signing config is deferred until publication.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 
