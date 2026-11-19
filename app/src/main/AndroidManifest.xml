@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- A launcher needs to see installed apps to build its app drawer. -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Scoped visibility for the app drawer. QUERY_ALL_PACKAGES is deliberately
+         avoided: it is a broad permission that triggers Play Protect warnings. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
     <!-- Widget binding is normally granted through ACTION_APPWIDGET_BIND user consent. -->
     <uses-permission android:name="android.permission.BIND_APPWIDGET" />
     <!-- P6: required for the opt-in accessibility service. -->

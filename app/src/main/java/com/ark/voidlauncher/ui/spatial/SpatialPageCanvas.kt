@@ -132,8 +132,11 @@ fun SpatialPageCanvas(
                         scope.launch { translation.snapTo(newTranslation) }
                     }
                 }
-                .pointerInput(onHomeRequested) {
-                    detectTapGestures(onDoubleTap = { onHomeRequested() })
+                .pointerInput(onHomeRequested, view) {
+                    detectTapGestures(onDoubleTap = {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        onHomeRequested()
+                    })
                 },
         ) {
             if (currentPage != null) {
