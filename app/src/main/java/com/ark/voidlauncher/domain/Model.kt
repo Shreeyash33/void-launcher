@@ -5,27 +5,30 @@ package com.ark.voidlauncher.domain
 enum class SwipeDirection { UP, DOWN, LEFT, RIGHT }
 
 /**
- * Pages use carousel paging: dragging toward a screen edge reveals the neighbour
- * on the *opposite* side. Stored edges keep their compass-style names (LEFT means
- * the page at x-1), so a gesture must be inverted before looking one up.
+ * Maps a swipe gesture to the stored edge that should be followed.
+ *
+ * Paging is a carousel on both axes: dragging toward a screen edge reveals the
+ * neighbour on the opposite side. Stored edges keep compass-style names (LEFT
+ * means the page at x-1, UP the page at y-1), so X needs inverting in the lookup,
+ * while Y already matches: a downward swipe uses the DOWN edge at y+1.
  */
-val SwipeDirection.opposite: SwipeDirection
+val SwipeDirection.edgeForGesture: SwipeDirection
     get() = when (this) {
-        SwipeDirection.UP -> SwipeDirection.DOWN
-        SwipeDirection.DOWN -> SwipeDirection.UP
+        SwipeDirection.UP -> SwipeDirection.UP
+        SwipeDirection.DOWN -> SwipeDirection.DOWN
         SwipeDirection.LEFT -> SwipeDirection.RIGHT
         SwipeDirection.RIGHT -> SwipeDirection.LEFT
     }
 
 /**
  * Coordinate reached by swiping [gesture] from ([coordX], [coordY]).
- * Coordinates are X-right / Y-up, and paging reveals the opposite neighbour:
- * swiping right goes to x-1, swiping up goes to y+1.
+ * Coordinates are X-right / Y-up; paging reveals the opposite neighbour, so
+ * right goes to x-1 and down goes to y+1 (which renders above on the map).
  */
 fun swipeDestination(coordX: Int, coordY: Int, gesture: SwipeDirection): Pair<Int, Int> =
     when (gesture) {
-        SwipeDirection.UP -> coordX to coordY + 1
-        SwipeDirection.DOWN -> coordX to coordY - 1
+        SwipeDirection.UP -> coordX to coordY - 1
+        SwipeDirection.DOWN -> coordX to coordY + 1
         SwipeDirection.LEFT -> coordX + 1 to coordY
         SwipeDirection.RIGHT -> coordX - 1 to coordY
     }

@@ -27,7 +27,7 @@ import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.SwipeDirection
-import com.ark.voidlauncher.domain.opposite
+import com.ark.voidlauncher.domain.edgeForGesture
 import com.ark.voidlauncher.ui.grid.PageGrid
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -108,8 +108,8 @@ fun SpatialPageCanvas(
                                 scope.launch { translation.animateTo(Offset.Zero, spring()) }
                             } else {
                                 // Paging semantics: a right swipe reveals the page on
-                                // the left, so look up the opposite stored direction.
-                                val edgeDirection = direction.opposite
+                                // the left, so look up the mirrored stored direction.
+                                val edgeDirection = direction.edgeForGesture
                                 val edge = edges.firstOrNull {
                                     it.fromPageId == currentPageId &&
                                         it.swipeDirection == edgeDirection

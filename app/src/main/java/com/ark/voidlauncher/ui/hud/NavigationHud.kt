@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.SwipeDirection
-import com.ark.voidlauncher.domain.opposite
+import com.ark.voidlauncher.domain.edgeForGesture
 import com.ark.voidlauncher.domain.swipeDestination
 import kotlinx.coroutines.delay
 
@@ -125,7 +125,7 @@ fun NavigationHud(
 
             DirectionIndicator(
                 direction = SwipeDirection.UP,
-                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.UP.opposite },
+                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.UP.edgeForGesture },
                 page = page,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -133,7 +133,7 @@ fun NavigationHud(
             )
             DirectionIndicator(
                 direction = SwipeDirection.DOWN,
-                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.DOWN.opposite },
+                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.DOWN.edgeForGesture },
                 page = page,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -141,7 +141,7 @@ fun NavigationHud(
             )
             DirectionIndicator(
                 direction = SwipeDirection.LEFT,
-                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.LEFT.opposite },
+                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.LEFT.edgeForGesture },
                 page = page,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
@@ -149,7 +149,7 @@ fun NavigationHud(
             )
             DirectionIndicator(
                 direction = SwipeDirection.RIGHT,
-                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.RIGHT.opposite },
+                edge = outgoing.firstOrNull { it.swipeDirection == SwipeDirection.RIGHT.edgeForGesture },
                 page = page,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
