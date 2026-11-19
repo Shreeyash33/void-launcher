@@ -1,0 +1,394 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 3,
+    "identityHash": "76ed0b83a24f6129519feeea17248859",
+    "entities": [
+      {
+        "tableName": "pages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`pageId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `coordX` INTEGER NOT NULL, `coordY` INTEGER NOT NULL, `title` TEXT NOT NULL, `gridCols` INTEGER NOT NULL, `gridRows` INTEGER NOT NULL, `isSecret` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "pageId",
+            "columnName": "pageId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coordX",
+            "columnName": "coordX",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "coordY",
+            "columnName": "coordY",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "title",
+            "columnName": "title",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gridCols",
+            "columnName": "gridCols",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "gridRows",
+            "columnName": "gridRows",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isSecret",
+            "columnName": "isSecret",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "pageId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_pages_coordX_coordY",
+            "unique": true,
+            "columnNames": [
+              "coordX",
+              "coordY"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_pages_coordX_coordY` ON `${TABLE_NAME}` (`coordX`, `coordY`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "page_edges",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`fromPageId` INTEGER NOT NULL, `swipeDirection` TEXT NOT NULL, `toPageId` INTEGER NOT NULL, PRIMARY KEY(`fromPageId`, `swipeDirection`), FOREIGN KEY(`fromPageId`) REFERENCES `pages`(`pageId`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`toPageId`) REFERENCES `pages`(`pageId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "fromPageId",
+            "columnName": "fromPageId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "swipeDirection",
+            "columnName": "swipeDirection",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "toPageId",
+            "columnName": "toPageId",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "fromPageId",
+            "swipeDirection"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_page_edges_toPageId",
+            "unique": false,
+            "columnNames": [
+              "toPageId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_page_edges_toPageId` ON `${TABLE_NAME}` (`toPageId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "pages",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "fromPageId"
+            ],
+            "referencedColumns": [
+              "pageId"
+            ]
+          },
+          {
+            "table": "pages",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "toPageId"
+            ],
+            "referencedColumns": [
+              "pageId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "app_customizations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`packageName` TEXT NOT NULL, `isFavorite` INTEGER NOT NULL, `isHidden` INTEGER NOT NULL, `customNickname` TEXT, `fontFamily` TEXT, `fontSizeSp` REAL, `fontWeight` TEXT, `letterSpacingSp` REAL, `textColorHex` TEXT, `textAlign` TEXT, `textTransform` TEXT, PRIMARY KEY(`packageName`))",
+        "fields": [
+          {
+            "fieldPath": "packageName",
+            "columnName": "packageName",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isFavorite",
+            "columnName": "isFavorite",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isHidden",
+            "columnName": "isHidden",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "customNickname",
+            "columnName": "customNickname",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "fontFamily",
+            "columnName": "fontFamily",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "fontSizeSp",
+            "columnName": "fontSizeSp",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "fontWeight",
+            "columnName": "fontWeight",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "letterSpacingSp",
+            "columnName": "letterSpacingSp",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "textColorHex",
+            "columnName": "textColorHex",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "textAlign",
+            "columnName": "textAlign",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "textTransform",
+            "columnName": "textTransform",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "packageName"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "grid_items",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`itemId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `pageId` INTEGER NOT NULL, `itemType` TEXT NOT NULL, `gridCol` INTEGER NOT NULL, `gridRow` INTEGER NOT NULL, `colSpan` INTEGER NOT NULL, `rowSpan` INTEGER NOT NULL, `referenceId` TEXT NOT NULL, `themeId` TEXT, `allowOverlap` INTEGER NOT NULL, FOREIGN KEY(`pageId`) REFERENCES `pages`(`pageId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pageId",
+            "columnName": "pageId",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemType",
+            "columnName": "itemType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "col",
+            "columnName": "gridCol",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "row",
+            "columnName": "gridRow",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colSpan",
+            "columnName": "colSpan",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rowSpan",
+            "columnName": "rowSpan",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "referenceId",
+            "columnName": "referenceId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "themeId",
+            "columnName": "themeId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "allowOverlap",
+            "columnName": "allowOverlap",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "itemId"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_grid_items_pageId",
+            "unique": false,
+            "columnNames": [
+              "pageId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_grid_items_pageId` ON `${TABLE_NAME}` (`pageId`)"
+          },
+          {
+            "name": "index_grid_items_referenceId",
+            "unique": false,
+            "columnNames": [
+              "referenceId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_grid_items_referenceId` ON `${TABLE_NAME}` (`referenceId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "pages",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "pageId"
+            ],
+            "referencedColumns": [
+              "pageId"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "backgrounds",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `scope` TEXT NOT NULL, `pageId` INTEGER, `kind` TEXT NOT NULL, `colorHex` TEXT, `gradientSpec` TEXT, `gradientAngle` REAL NOT NULL, `imageToken` TEXT)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scope",
+            "columnName": "scope",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pageId",
+            "columnName": "pageId",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "kind",
+            "columnName": "kind",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "colorHex",
+            "columnName": "colorHex",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "gradientSpec",
+            "columnName": "gradientSpec",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "gradientAngle",
+            "columnName": "gradientAngle",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "imageToken",
+            "columnName": "imageToken",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '76ed0b83a24f6129519feeea17248859')"
+    ]
+  }
+}

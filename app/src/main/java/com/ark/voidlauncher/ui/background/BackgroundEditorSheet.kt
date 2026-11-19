@@ -499,7 +499,13 @@ private fun isHexValid(input: String): Boolean {
 }
 
 /** Renders a Compose [Color] back into the ARGB hex string the domain expects. */
-private fun Color.toArgbHex(): String = String.format(Locale.US, "#%08X", toArgb())
+private fun Color.toArgbHex(): String {
+    val a = (alpha * 255).toInt().coerceIn(0, 255)
+    val r = (red * 255).toInt().coerceIn(0, 255)
+    val g = (green * 255).toInt().coerceIn(0, 255)
+    val b = (blue * 255).toInt().coerceIn(0, 255)
+    return String.format(Locale.US, "#%02X%02X%02X%02X", a, r, g, b)
+}
 
 /**
  * Defensive local mirror of the P10a `isValidStops` validator. Returns the

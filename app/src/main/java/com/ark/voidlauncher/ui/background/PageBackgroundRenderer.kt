@@ -81,8 +81,11 @@ fun PageBackgroundRenderer(
                     val cx = width / 2f
                     val cy = height / 2f
 
+                    val colorStops = stops.mapIndexed { index, stop ->
+                        stop.position to colors[index]
+                    }
                     val brush = Brush.linearGradient(
-                        *colors.toTypedArray(),
+                        *colorStops.toTypedArray(),
                         start = Offset(cx - dx * span / 2f, cy - dy * span / 2f),
                         end = Offset(cx + dx * span / 2f, cy + dy * span / 2f),
                     )
@@ -112,8 +115,10 @@ fun PageBackgroundRenderer(
                             .align(Alignment.TopCenter)
                             .background(
                                 Brush.verticalGradient(
-                                    scheme.background.copy(alpha = 0.55f),
-                                    scheme.background.copy(alpha = 0f),
+                                    listOf(
+                                        scheme.background.copy(alpha = 0.55f),
+                                        scheme.background.copy(alpha = 0f),
+                                    ),
                                 ),
                             ),
                     )
@@ -124,8 +129,10 @@ fun PageBackgroundRenderer(
                             .align(Alignment.BottomCenter)
                             .background(
                                 Brush.verticalGradient(
-                                    scheme.surface.copy(alpha = 0f),
-                                    scheme.surface.copy(alpha = 0.55f),
+                                    listOf(
+                                        scheme.surface.copy(alpha = 0f),
+                                        scheme.surface.copy(alpha = 0.55f),
+                                    ),
                                 ),
                             ),
                     )

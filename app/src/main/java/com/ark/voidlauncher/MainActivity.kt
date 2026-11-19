@@ -278,11 +278,12 @@ class MainActivity : ComponentActivity() {
                     val bytes = runCatching {
                         context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     }.getOrNull()
-                    if (bytes.isNullOrEmpty()) {
+                    if (bytes == null || bytes.isEmpty()) {
                         message = "IMAGE READ FAILED"
                     } else {
                         val token = UUID.randomUUID().toString()
-                        runCatching { backgroundRepository.importImage(token, bytes) }
+                        val imageBytes = bytes
+                        runCatching { backgroundRepository.importImage(token, imageBytes) }
                             .onSuccess {
                                 val base = backgroundDraft
                                     ?: PageBackground(
