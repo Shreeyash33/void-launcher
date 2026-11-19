@@ -14,7 +14,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
@@ -44,7 +48,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.backup.BackupManager
 import com.ark.voidlauncher.data.backup.BackupPayload
@@ -55,6 +61,7 @@ import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.data.db.VoidDatabase
 import com.ark.voidlauncher.data.migration.DataStoreToRoomMigration
 import com.ark.voidlauncher.data.repository.LauncherRepository
+import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
@@ -86,6 +93,7 @@ import com.ark.voidlauncher.ui.editor.EdgeChange
 import com.ark.voidlauncher.ui.editor.EditorValidation
 import com.ark.voidlauncher.ui.editor.ItemEditorSheet
 import com.ark.voidlauncher.ui.editor.PageEditorSheet
+import com.ark.voidlauncher.ui.grid.GridGeometry
 import com.ark.voidlauncher.ui.grid.ItemResizeDialog
 import com.ark.voidlauncher.ui.settings.SettingsScreen as SettingsSurface
 import com.ark.voidlauncher.ui.spatial.SpatialPageCanvas
@@ -93,7 +101,10 @@ import com.ark.voidlauncher.ui.theme.GlassPanel
 import com.ark.voidlauncher.ui.theme.ThemePickerSheet
 import com.ark.voidlauncher.ui.theme.ThemedSystemBars
 import com.ark.voidlauncher.ui.theme.VoidTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Locale
 import java.util.UUID
 
 private enum class Screen { HOME, DRAWER, SETTINGS, WIDGET_PICKER, BACKUP }
@@ -138,6 +149,8 @@ class MainActivity : ComponentActivity() {
             var canvasEditing by remember { mutableStateOf(false) }
             var selectedCanvasItemId by remember { mutableStateOf<Long?>(null) }
             var resizeItemId by remember { mutableStateOf<Long?>(null) }
+            var pendingWidgetKind by remember { mutableStateOf<BuiltInWidgetKind?>(null) }
+            var appPickerItemId by remember { mutableStateOf<Long?>(null) }
             var message by remember { mutableStateOf<String?>(null) }
             var overview by remember { mutableStateOf(false) }
             var themePicker by remember { mutableStateOf(false) }
@@ -365,6 +378,8 @@ class MainActivity : ComponentActivity() {
                 canvasEditing = false
                 selectedCanvasItemId = null
                 resizeItemId = null
+                pendingWidgetKind = null
+                appPickerItemId = null
             }
 
             DisposableEffect(widgetController) {
@@ -381,10 +396,16 @@ class MainActivity : ComponentActivity() {
 
             BackHandler(
                 enabled = themePicker || customThemeEditor || backgroundEditor || overview ||
-                    resizeItemId != null || canvasEditing ||
+                    resizeItemId != null || pendingWidgetKind != null ||
+                    appPickerItemId != null || canvasEditing ||
                     screen != Screen.HOME || editor != Editor.NONE,
             ) {
                 when {
+                    pendingWidgetKind != null -> {
+                        pendingWidgetKind = null
+                        canvasEditing = false
+                    }
+                    appPickerItemId != null -> appPickerItemId = null
                     resizeItemId != null -> resizeItemId = null
                     customThemeEditor -> customThemeEditor = false
                     backgroundEditor -> {
@@ -467,8 +488,76 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            /** Commits a floating built-in widget. Failure leaves it on the finger. */
+            fun dropPendingWidget(col: Int, row: Int): Boolean {
+                val kind = pendingWidgetKind ?: return false
+                val page = pages.firstOrNull { it.pageId == currentPageId }
+                if (page == null || page.pageType == PageType.APP_DRAWER) {
+                    message = "WIDGETS CANNOT BE PLACED HERE"
+                    return false
+                }
+                val candidate = GridItemEntity(
+                    pageId = page.pageId,
+                    itemType = GridItemType.WIDGET,
+                    col = col,
+                    row = row,
+                    referenceId = BuiltInWidgets.reference(kind),
+                    allowOverlap = true,
+                    widgetKind = kind,
+                )
+                val placed = resolvePlacement(candidate, page, pages, edges, items)
+                if (placed == null) {
+                    message = "DROP BLOCKED BY GRID RULES"
+                    return false
+                }
+                scope.launch {
+                    repository.addBuiltInWidget(
+                        kind = kind,
+                        pageId = placed.first,
+                        col = placed.second.col,
+                        row = placed.second.row,
+                    )
+                    pendingWidgetKind = null
+                    canvasEditing = false
+                    selectedCanvasItemId = null
+                }
+                return true
+            }
+
+            fun resizeCanvasItem(geometry: GridGeometry): Boolean {
+                val item = items.firstOrNull { it.itemId == selectedCanvasItemId } ?: return false
+                return commitCanvasPlacement(
+                    item = item,
+                    col = geometry.col,
+                    row = geometry.row,
+                    colSpan = geometry.spanX,
+                    rowSpan = geometry.spanY,
+                )
+            }
+
+            fun toggleAppInPicker(packageName: String) {
+                val item = items.firstOrNull { it.itemId == appPickerItemId } ?: return
+                val current = BuiltInWidgets.decodePackages(item.appListPackages).toMutableSet()
+                if (!current.add(packageName)) current.remove(packageName)
+                scope.launch { repository.setAppListPackages(item.itemId, current.toList()) }
+            }
+
             fun openWidgetPicker() {
                 screen = Screen.WIDGET_PICKER
+            }
+
+            fun acceptBuiltInWidget(kind: BuiltInWidgetKind) {
+                val page = pages.firstOrNull { it.pageId == currentPageId }
+                if (page == null || page.pageType == PageType.APP_DRAWER) {
+                    message = "WIDGETS CANNOT BE PLACED HERE"
+                    return
+                }
+                pendingWidgetKind = kind
+                overview = false
+                screen = Screen.HOME
+                canvasEditing = true
+                selectedCanvasItemId = null
+                resizeItemId = null
             }
 
             fun beginAddWidget(provider: ComponentName) {
@@ -560,8 +649,21 @@ class MainActivity : ComponentActivity() {
                                         commitCanvasPlacement(item, col, row)
                                     },
                                     onResizeCanvasItem = { resizeItemId = it.itemId },
+                                    onResizeCanvasGeometry = ::resizeCanvasItem,
+                                    onWidgetAction = { item ->
+                                        if (
+                                            item.widgetKind == BuiltInWidgetKind.APP_LIST ||
+                                            BuiltInWidgets.fromReference(item.referenceId) ==
+                                            BuiltInWidgetKind.APP_LIST
+                                        ) {
+                                            appPickerItemId = item.itemId
+                                        }
+                                    },
+                                    apps = apps,
                                     onRemoveCanvasItem = ::removeCanvasItem,
                                     onExitCanvasEditor = ::exitCanvasEditor,
+                                    floatingKind = pendingWidgetKind,
+                                    onFloatingDrop = ::dropPendingWidget,
                                     pageBackground = {
                                         PageBackgroundRenderer(
                                             background = effectiveBackground,
@@ -628,10 +730,9 @@ class MainActivity : ComponentActivity() {
                             onBack = { screen = Screen.SETTINGS },
                         )
 
-                        Screen.WIDGET_PICKER -> WidgetPickerScreen(
-                            widgetController = widgetController,
-                            onPick = ::beginAddWidget,
-                            onBack = { screen = Screen.SETTINGS },
+                        Screen.WIDGET_PICKER -> BuiltInWidgetPickerScreen(
+                            onLongPress = ::acceptBuiltInWidget,
+                            onBack = { screen = Screen.HOME },
                         )
                     }
 
@@ -672,6 +773,18 @@ class MainActivity : ComponentActivity() {
                                 .align(Alignment.BottomCenter)
                                 .padding(16.dp)
                                 .clickable { message = null },
+                        )
+                    }
+
+                    val pickerItem = items.firstOrNull { it.itemId == appPickerItemId }
+                    if (pickerItem != null) {
+                        WidgetAppPicker(
+                            apps = apps,
+                            selected = BuiltInWidgets.decodePackages(
+                                pickerItem.appListPackages,
+                            ).toSet(),
+                            onToggle = { packageName -> toggleAppInPicker(packageName) },
+                            onDone = { appPickerItemId = null },
                         )
                     }
                 }
@@ -1022,8 +1135,13 @@ private fun HomeScreen(
     onSelectCanvasItem: (GridItemEntity) -> Unit = {},
     onMoveCanvasItem: (GridItemEntity, Int, Int) -> Boolean = { _, _, _ -> false },
     onResizeCanvasItem: (GridItemEntity) -> Unit = {},
+    onResizeCanvasGeometry: (GridGeometry) -> Boolean = { false },
+    onWidgetAction: (GridItemEntity) -> Unit = {},
+    apps: List<AppInfo> = emptyList(),
     onRemoveCanvasItem: (GridItemEntity) -> Unit = {},
     onExitCanvasEditor: () -> Unit = {},
+    floatingKind: BuiltInWidgetKind? = null,
+    onFloatingDrop: (Int, Int) -> Boolean = { _, _ -> false },
     pageBackground: @Composable () -> Unit = {},
 ) {
     val page = pages.firstOrNull { it.pageId == currentPageId } ?: return
@@ -1053,26 +1171,34 @@ private fun HomeScreen(
             selectedItemId = selectedCanvasItemId,
             onSelectItem = onSelectCanvasItem,
             onMoveItem = onMoveCanvasItem,
+            onResizeItem = onResizeCanvasGeometry,
+            onWidgetAction = onWidgetAction,
             onItemTouched = { lastItemTouch = System.nanoTime() },
             onEmptyTap = onExitCanvasEditor,
+            floatingKind = floatingKind,
+            onFloatingDrop = onFloatingDrop,
             widgetContent = { item ->
                 val builtIn = item.widgetKind ?: BuiltInWidgets.fromReference(item.referenceId)
-                if (builtIn != null) {
-                    Text(
-                        text = BuiltInWidgets.label(builtIn),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
+                when (builtIn) {
+                    BuiltInWidgetKind.CLOCK -> ClockWidgetContent()
+                    BuiltInWidgetKind.APP_LIST -> AppListWidgetContent(
+                        packages = BuiltInWidgets.decodePackages(item.appListPackages),
+                        apps = apps,
                     )
-                } else {
-                    val widgetId = item.referenceId.toIntOrNull()
-                    if (widgetId != null) {
-                        WidgetHostView(
-                            controller = widgetController,
-                            appWidgetId = widgetId,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    } else {
-                        Text("WIDGET NEEDS REBIND", style = MaterialTheme.typography.labelSmall)
+                    null -> {
+                        val widgetId = item.referenceId.toIntOrNull()
+                        if (widgetId != null) {
+                            WidgetHostView(
+                                controller = widgetController,
+                                appWidgetId = widgetId,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        } else {
+                            Text(
+                                "WIDGET NEEDS REBIND",
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        }
                     }
                 }
             },
@@ -1215,37 +1341,165 @@ private fun AppDrawerPage(
 }
 
 @Composable
-private fun WidgetPickerScreen(
-    widgetController: WidgetHostController,
-    onPick: (ComponentName) -> Unit,
+private fun BuiltInWidgetPickerScreen(
+    onLongPress: (BuiltInWidgetKind) -> Unit,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val providers = remember { widgetController.installedProviders() }
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp),
     ) {
-        Text("BACK", style = MaterialTheme.typography.labelLarge,
-            modifier = Modifier.clickable(onClick = onBack).padding(8.dp))
-        androidx.compose.foundation.layout.Spacer(
-            Modifier.height(20.dp)
+        Text(
+            text = "BACK",
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.clickable(onClick = onBack).padding(8.dp),
         )
+        Spacer(Modifier.height(20.dp))
         Text("CHOOSE A WIDGET", style = MaterialTheme.typography.labelMedium)
-        androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-        if (providers.isEmpty()) {
-            Text("No widget providers available.", style = MaterialTheme.typography.bodyMedium)
-        } else {
+        Text(
+            text = "LONG-PRESS TO PICK UP",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+        )
+        Spacer(Modifier.height(12.dp))
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(BuiltInWidgetKind.entries, key = { it.name }) { kind ->
+                Text(
+                    text = BuiltInWidgets.label(kind),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pointerInput(kind) {
+                            detectTapGestures(onLongPress = { onLongPress(kind) })
+                        }
+                        .padding(vertical = 16.dp),
+                )
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WidgetAppPicker(
+    apps: List<AppInfo>,
+    selected: Set<String>,
+    onToggle: (packageName: String) -> Unit,
+    onDone: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 20.dp, vertical = 28.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "DONE",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable(onClick = onDone).padding(8.dp),
+                )
+                Spacer(Modifier.weight(1f))
+                Text("ADD APPS", style = MaterialTheme.typography.labelMedium)
+            }
+            Spacer(Modifier.height(12.dp))
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(providers, key = { it.provider.flattenToString() }) { provider ->
-                    val label = provider.loadLabel(context.packageManager).toString()
+                items(apps, key = { it.packageName }) { app ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggle(app.packageName) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (app.packageName in selected) "[x]" else "[ ]",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            text = app.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ClockWidgetContent() {
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            now = System.currentTimeMillis()
+        }
+    }
+    val time = remember(now) {
+        SimpleDateFormat("HH:mm", Locale.getDefault()).format(java.util.Date(now))
+    }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text = time,
+            style = MaterialTheme.typography.headlineMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
+
+@Composable
+private fun AppListWidgetContent(packages: List<String>, apps: List<AppInfo>) {
+    val labels = remember(packages, apps) {
+        packages.map { pkg ->
+            apps.firstOrNull { it.packageName == pkg }?.label ?: pkg.substringAfterLast('.')
+        }
+    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = "+",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+        if (labels.isEmpty()) {
+            Text(
+                text = "TAP + TO ADD APPS",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(6.dp),
+            )
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 6.dp, top = 28.dp, end = 6.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                labels.take(8).forEach { label ->
                     Text(
                         text = label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.fillMaxWidth()
-                            .clickable { onPick(provider.provider) }
-                            .padding(vertical = 16.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f))
                 }
             }
         }

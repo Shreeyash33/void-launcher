@@ -25,10 +25,12 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.db.GridItemEntity
+import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.edgeForGesture
+import com.ark.voidlauncher.ui.grid.GridGeometry
 import com.ark.voidlauncher.ui.grid.PageGrid
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -69,8 +71,12 @@ fun SpatialPageCanvas(
     selectedItemId: Long? = null,
     onSelectItem: (GridItemEntity) -> Unit = {},
     onMoveItem: (GridItemEntity, Int, Int) -> Boolean = { _, _, _ -> false },
+    onResizeItem: (GridGeometry) -> Boolean = { false },
+    onWidgetAction: (GridItemEntity) -> Unit = {},
     onItemTouched: () -> Unit = {},
     onEmptyTap: () -> Unit = {},
+    floatingKind: BuiltInWidgetKind? = null,
+    onFloatingDrop: (Int, Int) -> Boolean = { _, _ -> false },
 ) {
     val currentPage = remember(pages, currentPageId) {
         pages.firstOrNull { it.pageId == currentPageId }
@@ -83,11 +89,14 @@ fun SpatialPageCanvas(
     val scope = rememberCoroutineScope()
     val view = LocalView.current
 
-    LaunchedEffect(editing) {
-        if (editing && translation.value != Offset.Zero) translation.snapTo(Offset.Zero)
+    // A floating pending widget also locks paging so a drag never changes pages.
+    val interactionLocked = editing || floatingKind != null
+
+    LaunchedEffect(interactionLocked) {
+        if (interactionLocked && translation.value != Offset.Zero) translation.snapTo(Offset.Zero)
     }
 
-    val pageGestureModifier = if (editing) {
+    val pageGestureModifier = if (interactionLocked) {
         Modifier
     } else {
         Modifier
@@ -203,8 +212,12 @@ fun SpatialPageCanvas(
                     selectedItemId = selectedItemId,
                     onSelectItem = onSelectItem,
                     onMoveItem = onMoveItem,
+                    onResizeItem = onResizeItem,
+                    onWidgetAction = onWidgetAction,
                     onItemTouched = onItemTouched,
                     onEmptyTap = onEmptyTap,
+                    floatingKind = floatingKind,
+                    onFloatingDrop = onFloatingDrop,
                 )
             }
         }
