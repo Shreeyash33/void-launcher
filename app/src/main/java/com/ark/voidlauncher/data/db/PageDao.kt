@@ -42,4 +42,7 @@ interface PageDao {
 
     @Query("SELECT COUNT(*) FROM pages")
     suspend fun count(): Int
+
+    @Query("DELETE FROM pages")
+    suspend fun deleteAll()
 }

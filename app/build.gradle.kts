@@ -60,6 +60,8 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for local JVM tests; android.jar's stub would throw "not mocked".
+    testImplementation("org.json:json:20231013")
 
     implementation("androidx.compose.ui:ui:1.6.7")
     implementation("androidx.compose.ui:ui-tooling-preview:1.6.7")

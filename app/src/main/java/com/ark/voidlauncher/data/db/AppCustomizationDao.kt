@@ -30,4 +30,7 @@ interface AppCustomizationDao {
 
     @Query("SELECT * FROM app_customizations WHERE packageName = :packageName")
     suspend fun getByPackageOnce(packageName: String): AppCustomizationEntity?
+
+    @Query("DELETE FROM app_customizations")
+    suspend fun deleteAll()
 }

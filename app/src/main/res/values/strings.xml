@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Void Launcher</string>
-    <string name="accessibility_service_description">Optional: lets Void Launcher perform system actions such as Home, Back, Recents and Notifications. Off by default. No screen content is read or stored.</string>
+    <string name="accessibility_service_label">Void Launcher system actions</string>
+    <string name="accessibility_service_description">Off by default. Needed only for system actions such as Home, Back, Recents, Notifications, and Lock screen. Reads no screen content.</string>
 </resources>
