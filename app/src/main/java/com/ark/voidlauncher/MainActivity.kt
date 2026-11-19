@@ -86,6 +86,7 @@ import com.ark.voidlauncher.ui.editor.ItemEditorSheet
 import com.ark.voidlauncher.ui.editor.PageEditorSheet
 import com.ark.voidlauncher.ui.settings.SettingsScreen as SettingsSurface
 import com.ark.voidlauncher.ui.spatial.SpatialPageCanvas
+import com.ark.voidlauncher.ui.theme.GlassPanel
 import com.ark.voidlauncher.ui.theme.ThemePickerSheet
 import com.ark.voidlauncher.ui.theme.ThemedSystemBars
 import com.ark.voidlauncher.ui.theme.VoidTheme
@@ -911,19 +912,25 @@ private fun HomeScreen(
             modifier = Modifier.padding(20.dp),
         )
 
-        Row(
+        GlassPanel(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(24.dp)
                 .fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
-            Text("APPS", style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.clickable(onClick = onOpenDrawer).padding(8.dp))
-            Text("EDIT", style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.clickable(onClick = onEditItems).padding(8.dp))
-            Text("SETTINGS", style = MaterialTheme.typography.labelLarge,
-                modifier = Modifier.clickable(onClick = onOpenSettings).padding(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                Text("APPS", style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.clickable(onClick = onOpenDrawer).padding(8.dp))
+                Text("EDIT", style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.clickable(onClick = onEditItems).padding(8.dp))
+                Text("SETTINGS", style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.clickable(onClick = onOpenSettings).padding(8.dp))
+            }
         }
 
         if (pageItems.isEmpty()) {

@@ -2,14 +2,8 @@ package com.ark.voidlauncher.ui.theme
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.PressInteraction
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -17,7 +11,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
 /**
@@ -29,9 +22,9 @@ import androidx.compose.ui.unit.dp
  * shadow, so the panel behaves identically (and never crashes) on API 24 through
  * 34, including devices that have no blur support, and needs no opt-in APIs.
  *
- * A light press settles the panel toward its surface and dims the sheen, giving a
- * small tactile response without a ripple or a click handler of its own. Children
- * that handle input keep priority, so buttons placed inside still work normally.
+ * The panel is purely visual. It installs no pointer input of its own, so any
+ * clickable child receives touches normally — a press-tracking gesture detector
+ * here would consume the down event and silently break buttons inside the panel.
  */
 @Composable
 fun GlassPanel(
@@ -39,43 +32,22 @@ fun GlassPanel(
     content: @Composable () -> Unit,
 ) {
     val style = LocalVoidStyle.current
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-
-    val elevation = if (isPressed) 0.dp else style.raisedElevation
-    val pressSheen = if (isPressed) 0.45f else 1f
-    val tint = style.glassTint.copy(alpha = style.glassTint.alpha * if (isPressed) 0.92f else 1f)
 
     Box(
         modifier = modifier
-            // Track press state without consuming the tap: children remain interactive.
-            .pointerInput(interactionSource) {
-                detectTapGestures(onPress = { offset ->
-                    val press = PressInteraction.Press(offset)
-                    interactionSource.emit(press)
-                    val released = tryAwaitRelease()
-                    interactionSource.emit(
-                        if (released) PressInteraction.Release(press) else PressInteraction.Cancel(press),
-                    )
-                })
-            }
-            .shadow(elevation = elevation, shape = style.panelShape, clip = false)
-            .background(color = tint, shape = style.panelShape)
+            .shadow(elevation = style.raisedElevation, shape = style.panelShape, clip = false)
+            .background(color = style.glassTint, shape = style.panelShape)
             .border(width = 1.dp, color = style.glassBorder, shape = style.panelShape)
             .clip(style.panelShape)
             .drawBehind {
                 // Skeuo depth: highlight along the top edge, shadow along the bottom.
-                // Transparent gradient stops are the same tokens at alpha = 0, so no
-                // extra colours are introduced here.
+                // Transparent gradient stops reuse the same tokens at alpha = 0.
                 val sheen = style.glassBlurRadius.toPx().coerceAtMost(size.height / 2f)
                 if (sheen <= 0f) return@drawBehind
 
-                val highlight = style.skeuoHighlight.copy(
-                    alpha = style.skeuoHighlight.alpha * pressSheen,
-                )
                 drawRect(
                     brush = Brush.verticalGradient(
-                        colors = listOf(highlight, highlight.copy(alpha = 0f)),
+                        colors = listOf(style.skeuoHighlight, style.skeuoHighlight.copy(alpha = 0f)),
                         startY = 0f,
                         endY = sheen,
                     ),
@@ -83,10 +55,9 @@ fun GlassPanel(
                 )
 
                 val shadowTop = size.height - sheen
-                val shadow = style.skeuoShadow.copy(alpha = style.skeuoShadow.alpha * pressSheen)
                 drawRect(
                     brush = Brush.verticalGradient(
-                        colors = listOf(shadow.copy(alpha = 0f), shadow),
+                        colors = listOf(style.skeuoShadow.copy(alpha = 0f), style.skeuoShadow),
                         startY = shadowTop,
                         endY = size.height,
                     ),

@@ -37,6 +37,7 @@ import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.edgeForGesture
 import com.ark.voidlauncher.domain.swipeDestination
+import com.ark.voidlauncher.ui.theme.GlassPanel
 import kotlinx.coroutines.delay
 
 /**
@@ -98,33 +99,30 @@ fun NavigationHud(
                     .padding(top = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .background(
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                            shape = MaterialTheme.shapes.small,
-                        )
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                ) {
-                    Text(
-                        text = "PAGE ${page.coordX},${page.coordY}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    if (isHome) {
-                        Spacer(Modifier.width(8.dp))
+                GlassPanel {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    ) {
                         Text(
-                            text = "HOME",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier
-                                .background(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = MaterialTheme.shapes.small,
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                            text = "PAGE ${page.coordX},${page.coordY}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
+                        if (isHome) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "HOME",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier
+                                    .background(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        shape = MaterialTheme.shapes.small,
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -162,20 +160,20 @@ fun NavigationHud(
                     .padding(end = 8.dp),
             )
 
-            Text(
-                text = "MAP",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
+            GlassPanel(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 12.dp, end = 12.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
-                        shape = MaterialTheme.shapes.small,
-                    )
-                    .clickable(onClick = onOpenOverview)
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-            )
+                    .padding(top = 12.dp, end = 12.dp),
+            ) {
+                Text(
+                    text = "MAP",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .clickable(onClick = onOpenOverview)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
         }
     }
 }
