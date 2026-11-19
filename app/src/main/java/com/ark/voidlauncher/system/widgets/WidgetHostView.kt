@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.viewinterop.AndroidView
 
@@ -26,7 +27,7 @@ fun WidgetHostView(
     onOptionsChanged: (Bundle) -> Unit = {},
 ) {
     BoxWithConstraints(modifier = modifier) {
-        val density = this.density
+        val density = LocalDensity.current.density
         val widthDp = dpSize(constraints.maxWidth, constraints.hasBoundedWidth, density)
         val heightDp = dpSize(constraints.maxHeight, constraints.hasBoundedHeight, density)
 
