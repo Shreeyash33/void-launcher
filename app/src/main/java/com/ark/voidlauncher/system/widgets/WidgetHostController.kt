@@ -117,7 +117,6 @@ class WidgetHostController(context: Context) {
     fun installedProviders(): List<AppWidgetProviderInfo> {
         return try {
             appWidgetManager.getInstalledProvidersForProfile(Process.myUserHandle())
-                ?: emptyList()
         } catch (@Suppress("TooGenericExceptionCaught") ignored: Exception) {
             appWidgetManager.installedProviders ?: emptyList()
         }
