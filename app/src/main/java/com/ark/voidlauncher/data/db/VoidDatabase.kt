@@ -6,6 +6,8 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.ark.voidlauncher.data.background.BackgroundDao
+import com.ark.voidlauncher.data.background.BackgroundEntity
 
 @Database(
     entities = [
@@ -13,8 +15,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PageEdgeEntity::class,
         AppCustomizationEntity::class,
         GridItemEntity::class,
+        BackgroundEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class VoidDatabase : RoomDatabase() {
@@ -22,6 +25,7 @@ abstract class VoidDatabase : RoomDatabase() {
     abstract fun pageEdgeDao(): PageEdgeDao
     abstract fun appCustomizationDao(): AppCustomizationDao
     abstract fun gridItemDao(): GridItemDao
+    abstract fun backgroundDao(): BackgroundDao
 
     companion object {
         const val DATABASE_NAME = "void_launcher.db"
@@ -48,7 +52,7 @@ abstract class VoidDatabase : RoomDatabase() {
                     DATABASE_NAME,
                 )
                     .addCallback(SeedCallback())
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .build()
                     .also { instance = it }
             }
@@ -60,6 +64,28 @@ abstract class VoidDatabase : RoomDatabase() {
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 SeedCallback().seedUpgradeMap(db)
+            }
+        }
+
+        /**
+         * v3 adds the background table for P10. No FK is declared so the migration
+         * stays a single CREATE TABLE; stale rows for deleted pages are harmless and
+         * are ignored by the resolver.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `backgrounds` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`scope` TEXT NOT NULL, " +
+                        "`pageId` INTEGER, " +
+                        "`kind` TEXT NOT NULL, " +
+                        "`colorHex` TEXT, " +
+                        "`gradientSpec` TEXT, " +
+                        "`gradientAngle` REAL NOT NULL, " +
+                        "`imageToken` TEXT" +
+                        ")",
+                )
             }
         }
     }
