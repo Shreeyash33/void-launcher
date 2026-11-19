@@ -2,7 +2,6 @@ package com.ark.voidlauncher.ui.editor
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.item
 import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
