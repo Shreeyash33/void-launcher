@@ -3,6 +3,8 @@
 
     <!-- A launcher needs to see installed apps to build its app drawer. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Widget binding is normally granted through ACTION_APPWIDGET_BIND user consent. -->
+    <uses-permission android:name="android.permission.BIND_APPWIDGET" />
 
     <application
         android:allowBackup="true"
@@ -23,6 +25,15 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- P1: removes stale grid items when a widget instance is deleted. -->
+        <receiver
+            android:name=".system.widgets.WidgetDeleteReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_DELETED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
