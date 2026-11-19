@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ark.voidlauncher.data.db.VoidDatabase
+import com.ark.voidlauncher.data.migration.DataStoreToRoomMigration
 import com.ark.voidlauncher.ui.theme.VoidTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -56,6 +58,14 @@ class MainActivity : ComponentActivity() {
             val pinned by prefs.pinnedApps.collectAsState(initial = emptySet())
             val themeMode by prefs.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val scope = rememberCoroutineScope()
+
+            LaunchedEffect(Unit) {
+                DataStoreToRoomMigration(
+                    context = context,
+                    database = VoidDatabase.getInstance(context),
+                    dataStore = prefs.dataStore,
+                ).migrate()
+            }
 
             VoidTheme(themeMode) {
                 LauncherScreen(

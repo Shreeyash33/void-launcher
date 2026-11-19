@@ -25,6 +25,9 @@ class LauncherPrefs(private val context: Context) {
         private const val THEME_LIGHT = "light"
     }
 
+    /** Shared DataStore instance so migrations read the same file as prefs. */
+    val dataStore: DataStore<Preferences> get() = context.dataStore
+
     val pinnedApps: Flow<Set<String>> = context.dataStore.data.map { it[PINNED] ?: emptySet() }
 
     val themeMode: Flow<ThemeMode> = context.dataStore.data.map { prefs ->
