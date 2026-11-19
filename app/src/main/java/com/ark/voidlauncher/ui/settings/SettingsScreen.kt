@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.ThemeMode
+import com.ark.voidlauncher.domain.OrientationMode
 
 private enum class SettingsConfirmation { NONE, ACCESSIBILITY, IMPORT }
 
@@ -52,6 +53,10 @@ fun SettingsScreen(
     onExport: () -> Unit,
     onImport: () -> Unit,
     onAccessibilityToggle: (Boolean) -> Unit,
+    orientationMode: OrientationMode,
+    onOrientationChange: (OrientationMode) -> Unit,
+    onEditCustomTheme: () -> Unit,
+    onEditBackgrounds: () -> Unit,
 ) {
     val context = LocalContext.current
     var confirmation by remember { mutableStateOf(SettingsConfirmation.NONE) }
@@ -111,6 +116,41 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            Spacer(Modifier.height(8.dp))
+            SettingsAction("EDIT CUSTOM THEME", onEditCustomTheme)
+
+            Spacer(Modifier.height(28.dp))
+
+            SectionLabel("ORIENTATION")
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                OrientationMode.entries.forEach { mode ->
+                    Text(
+                        text = mode.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (mode == orientationMode) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onBackground.copy(alpha = 0.45f)
+                        },
+                        modifier = Modifier
+                            .clickable { onOrientationChange(mode) }
+                            .padding(vertical = 6.dp),
+                    )
+                }
+            }
+            Text(
+                text = "PORTRAIT IS THE DEFAULT. AUTO FOLLOWS THE DEVICE.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+
+            Spacer(Modifier.height(28.dp))
+
+            SectionLabel("APPEARANCE")
+            SettingsAction("EDIT BACKGROUNDS", onEditBackgrounds)
 
             Spacer(Modifier.height(28.dp))
 

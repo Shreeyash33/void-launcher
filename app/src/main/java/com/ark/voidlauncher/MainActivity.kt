@@ -4,8 +4,11 @@ import android.app.Activity.RESULT_OK
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,24 +34,37 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.backup.BackupManager
 import com.ark.voidlauncher.data.backup.BackupPayload
+import com.ark.voidlauncher.data.backup.BackedUpBackground
 import com.ark.voidlauncher.data.backup.BackedUpItem
+import com.ark.voidlauncher.data.background.BackgroundRepository
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.data.db.VoidDatabase
 import com.ark.voidlauncher.data.migration.DataStoreToRoomMigration
 import com.ark.voidlauncher.data.repository.LauncherRepository
+import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.GridItemType
+import com.ark.voidlauncher.domain.OrientationMode
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.SwipeDirection
+import com.ark.voidlauncher.domain.background.BackgroundKind
+import com.ark.voidlauncher.domain.background.BackgroundResolver
+import com.ark.voidlauncher.domain.background.BackgroundScope
+import com.ark.voidlauncher.domain.background.PageBackground
+import com.ark.voidlauncher.domain.background.decodeGradientStops
+import com.ark.voidlauncher.domain.background.encodeGradientStops
 import com.ark.voidlauncher.domain.placement.PlacementResolver
 import com.ark.voidlauncher.domain.placement.PlacementResult
 import com.ark.voidlauncher.system.accessibility.AccessibilityBridge
@@ -56,6 +72,9 @@ import com.ark.voidlauncher.system.widgets.WidgetEvents
 import com.ark.voidlauncher.system.widgets.WidgetHostController
 import com.ark.voidlauncher.system.widgets.WidgetHostView
 import com.ark.voidlauncher.ui.backup.BackupScreen
+import com.ark.voidlauncher.ui.background.BackgroundEditorSheet
+import com.ark.voidlauncher.ui.background.PageBackgroundRenderer
+import com.ark.voidlauncher.ui.customtheme.CustomThemeEditorSheet
 import com.ark.voidlauncher.ui.drawer.AppDrawerOverlay
 import com.ark.voidlauncher.ui.editor.AppTypographyEditorSheet
 import com.ark.voidlauncher.ui.hud.NavigationHud
@@ -69,6 +88,7 @@ import com.ark.voidlauncher.ui.spatial.SpatialPageCanvas
 import com.ark.voidlauncher.ui.theme.ThemePickerSheet
 import com.ark.voidlauncher.ui.theme.VoidTheme
 import kotlinx.coroutines.launch
+import java.util.UUID
 
 private enum class Screen { HOME, DRAWER, SETTINGS, WIDGET_PICKER, BACKUP }
 private enum class Editor { NONE, PAGES, ITEMS, TYPOGRAPHY }
@@ -94,6 +114,10 @@ class MainActivity : ComponentActivity() {
             val apps = remember { appRepository.installedApps() }
             val pinned by prefs.pinnedApps.collectAsState(initial = emptySet())
             val themeMode by prefs.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
+            val customPalette by prefs.customPalette.collectAsState(initial = CustomPalette.darkDefault())
+            val orientationMode by prefs.orientationMode.collectAsState(initial = OrientationMode.PORTRAIT)
+            val backgroundRepository = remember { BackgroundRepository(database, context) }
+            val backgrounds by backgroundRepository.backgrounds.collectAsState(initial = emptyList())
             val pages by repository.pages.collectAsState(initial = emptyList())
             val edges by repository.edges.collectAsState(initial = emptyList())
             val items by repository.items.collectAsState(initial = emptyList())
@@ -108,6 +132,9 @@ class MainActivity : ComponentActivity() {
             var overview by remember { mutableStateOf(false) }
             var wallHit by remember { mutableStateOf<SwipeDirection?>(null) }
             var themePicker by remember { mutableStateOf(false) }
+            var customThemeEditor by remember { mutableStateOf(false) }
+            var backgroundEditor by remember { mutableStateOf(false) }
+            var backgroundDraft by remember { mutableStateOf<PageBackground?>(null) }
             val accessibilityEnabled = remember { AccessibilityBridge.isEnabled(context) }
 
             val exportLauncher = rememberLauncherForActivityResult(
@@ -115,6 +142,34 @@ class MainActivity : ComponentActivity() {
             ) { uri ->
                 if (uri == null) return@rememberLauncherForActivityResult
                 scope.launch {
+                    // Encode P10 backgrounds with portable coordinates and image bytes.
+                    val backedUpBackgrounds = backgrounds.mapNotNull { bg ->
+                        val page = if (bg.scope == BackgroundScope.PAGE) {
+                            pages.firstOrNull { it.pageId == bg.pageId }
+                        } else {
+                            null
+                        }
+                        if (bg.scope == BackgroundScope.PAGE && page == null) {
+                            return@mapNotNull null
+                        }
+                        val encodedImage = bg.imageToken?.let { token ->
+                            runCatching { backgroundRepository.imageBytes(token) }.getOrNull()
+                        }?.takeIf { it.size <= MAX_BACKUP_IMAGE_BYTES }?.let {
+                            Base64.encodeToString(it, Base64.DEFAULT)
+                        }
+                        BackedUpBackground(
+                            scope = bg.scope.name,
+                            pageCoordX = page?.coordX,
+                            pageCoordY = page?.coordY,
+                            kind = bg.kind.name,
+                            colorHex = bg.colorHex,
+                            gradientSpec = bg.gradientStops
+                                .takeIf { it.isNotEmpty() }?.let(::encodeGradientStops),
+                            gradientAngle = bg.gradientAngle,
+                            imageToken = bg.imageToken,
+                            imageBase64 = encodedImage,
+                        )
+                    }
                     val payload = BackupPayload(
                         pages = pages,
                         edges = edges,
@@ -140,6 +195,9 @@ class MainActivity : ComponentActivity() {
                         homeCoordX = homeCoord.first,
                         homeCoordY = homeCoord.second,
                         theme = themeMode.name,
+                        orientation = orientationMode.name,
+                        customPalette = customPalette,
+                        backgrounds = backedUpBackgrounds,
                     )
                     message = runCatching {
                         BackupManager.writeToUri(context, uri, payload)
@@ -158,10 +216,29 @@ class MainActivity : ComponentActivity() {
                     if (payload == null) {
                         message = "INVALID OR UNSUPPORTED BACKUP FILE"
                     } else {
-                        message = if (runCatching { repository.restore(payload) }.isSuccess) {
-                            "BACKUP RESTORED"
+                        val coreRestored = runCatching { repository.restore(payload) }.isSuccess
+                        if (!coreRestored) {
+                            message = "RESTORE FAILED"
                         } else {
-                            "RESTORE FAILED"
+                            // P8/P9 preferences are not touched by LauncherRepository.restore
+                            // (it only restores theme). Apply them here with safe defaults.
+                            runCatching {
+                                val orientation = runCatching {
+                                    OrientationMode.valueOf(payload.orientation)
+                                }.getOrDefault(OrientationMode.PORTRAIT)
+                                prefs.setOrientation(orientation)
+                                payload.customPalette?.let { prefs.setCustomPalette(it) }
+                            }
+                            // P10 backgrounds are restored by fresh page coordinates because
+                            // restore() regenerates all Room page ids.
+                            val backgroundsRestored = runCatching {
+                                restoreBackgrounds(payload.backgrounds, database, backgroundRepository)
+                            }.isSuccess
+                            message = if (backgroundsRestored) {
+                                "BACKUP RESTORED"
+                            } else {
+                                "BACKUP RESTORED (SOME BACKGROUNDS SKIPPED)"
+                            }
                         }
                     }
                 }
@@ -193,6 +270,66 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            val imageLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.OpenDocument(),
+            ) { uri ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                scope.launch {
+                    val bytes = runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    }.getOrNull()
+                    if (bytes.isNullOrEmpty()) {
+                        message = "IMAGE READ FAILED"
+                    } else {
+                        val token = UUID.randomUUID().toString()
+                        runCatching { backgroundRepository.importImage(token, bytes) }
+                            .onSuccess {
+                                val base = backgroundDraft
+                                    ?: PageBackground(
+                                        scope = BackgroundScope.PAGE,
+                                        pageId = currentPageId,
+                                        kind = BackgroundKind.IMAGE,
+                                    )
+                                backgroundDraft = base.copy(
+                                    kind = BackgroundKind.IMAGE,
+                                    imageToken = token,
+                                )
+                                message = "IMAGE READY - SAVE TO APPLY"
+                            }
+                            .onFailure { message = "IMAGE SAVE FAILED" }
+                    }
+                }
+            }
+
+            // A page-specific background wins; otherwise the global one is used.
+            val effectiveBackground = remember(backgrounds, currentPageId) {
+                BackgroundResolver.resolve(currentPageId, backgrounds)
+            }
+            val backgroundImage by produceState<ImageBitmap?>(
+                initialValue = null,
+                effectiveBackground?.imageToken,
+            ) {
+                val token = effectiveBackground?.imageToken
+                value = if (token == null) {
+                    null
+                } else {
+                    runCatching {
+                        backgroundRepository.imageBytes(token)?.let { bytes ->
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                        }
+                    }.getOrNull()
+                }
+            }
+
+            DisposableEffect(orientationMode) {
+                requestedOrientation = when (orientationMode) {
+                    OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                    OrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                }
+                onDispose { }
+            }
+
             LaunchedEffect(Unit) {
                 DataStoreToRoomMigration(
                     context = context,
@@ -216,9 +353,15 @@ class MainActivity : ComponentActivity() {
             }
 
             BackHandler(
-                enabled = themePicker || overview || screen != Screen.HOME || editor != Editor.NONE,
+                enabled = themePicker || customThemeEditor || backgroundEditor || overview ||
+                    screen != Screen.HOME || editor != Editor.NONE,
             ) {
                 when {
+                    customThemeEditor -> customThemeEditor = false
+                    backgroundEditor -> {
+                        backgroundEditor = false
+                        backgroundDraft = null
+                    }
                     themePicker -> themePicker = false
                     overview -> overview = false
                     editor != Editor.NONE -> editor = Editor.NONE
@@ -257,7 +400,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            VoidTheme(themeMode) {
+            VoidTheme(themeMode, customPalette) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     when (screen) {
                         Screen.HOME -> HomeScreen(
@@ -278,6 +421,13 @@ class MainActivity : ComponentActivity() {
                             wallHit = wallHit,
                             onWallHitCleared = { wallHit = null },
                             onOpenOverview = { overview = true },
+                            pageBackground = {
+                                PageBackgroundRenderer(
+                                    background = effectiveBackground,
+                                    image = backgroundImage,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            },
                         )
 
                         Screen.DRAWER -> AppDrawerOverlay(
@@ -307,6 +457,13 @@ class MainActivity : ComponentActivity() {
                             onImport = { importLauncher.launch(arrayOf("application/json")) },
                             onAccessibilityToggle = { enabled ->
                                 if (enabled) AccessibilityBridge.openSettings(context)
+                            },
+                            orientationMode = orientationMode,
+                            onOrientationChange = { scope.launch { prefs.setOrientation(it) } },
+                            onEditCustomTheme = { customThemeEditor = true },
+                            onEditBackgrounds = {
+                                backgroundDraft = effectiveBackground
+                                backgroundEditor = true
                             },
                         )
 
@@ -468,11 +625,131 @@ class MainActivity : ComponentActivity() {
                 if (themePicker) {
                     ThemePickerSheet(
                         current = themeMode,
-                        onSelect = { scope.launch { prefs.setTheme(it) } },
+                        onSelect = { mode ->
+                            scope.launch {
+                                prefs.setTheme(mode)
+                                if (mode == ThemeMode.CUSTOM) {
+                                    customThemeEditor = true
+                                }
+                            }
+                            themePicker = false
+                        },
+                        onEditCustom = {
+                            themePicker = false
+                            customThemeEditor = true
+                        },
                         onDismiss = { themePicker = false },
                     )
                 }
+
+                if (customThemeEditor) {
+                    CustomThemeEditorSheet(
+                        palette = customPalette,
+                        isDarkBase = themeMode != ThemeMode.LIGHT,
+                        onSave = { palette ->
+                            scope.launch { prefs.setCustomPalette(palette) }
+                            customThemeEditor = false
+                        },
+                        onDismiss = { customThemeEditor = false },
+                    )
+                }
+
+                if (backgroundEditor) {
+                    val draft = backgroundDraft
+                    val draftImage by produceState<ImageBitmap?>(
+                        initialValue = null,
+                        draft?.imageToken,
+                    ) {
+                        val token = draft?.imageToken
+                        value = if (token == null) {
+                            null
+                        } else {
+                            runCatching {
+                                backgroundRepository.imageBytes(token)?.let { bytes ->
+                                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                                }
+                            }.getOrNull()
+                        }
+                    }
+                    BackgroundEditorSheet(
+                        current = draft,
+                        pageTitle = pages.firstOrNull { it.pageId == currentPageId }?.title ?: "HOME",
+                        isGlobal = draft?.scope != BackgroundScope.PAGE,
+                        onSave = { edited ->
+                            scope.launch {
+                                runCatching { backgroundRepository.save(edited) }
+                                    .onSuccess { message = "BACKGROUND SAVED" }
+                                    .onFailure { message = "BACKGROUND SAVE FAILED" }
+                            }
+                            backgroundEditor = false
+                            backgroundDraft = null
+                        },
+                        onDelete = {
+                            scope.launch {
+                                draft?.id?.let { backgroundRepository.remove(it) }
+                                draft?.imageToken?.let { backgroundRepository.deleteImage(it) }
+                            }
+                            backgroundEditor = false
+                            backgroundDraft = null
+                        },
+                        onPickImage = { imageLauncher.launch(arrayOf("image/*")) },
+                        onDismiss = {
+                            backgroundEditor = false
+                            backgroundDraft = null
+                        },
+                        pageId = currentPageId,
+                        image = draftImage,
+                    )
+                }
             }
+        }
+    }
+}
+
+/** Guard against huge base64 payloads that would bloat a backup file. */
+private const val MAX_BACKUP_IMAGE_BYTES = 2 * 1024 * 1024
+
+/**
+ * Restores P10 backgrounds after the core restore has regenerated all page ids.
+ * Page-scoped records are re-linked through their coordinates, matching how
+ * [BackedUpItem] survives a restore. Image bytes are re-imported into internal
+ * storage under their original stable token.
+ */
+private suspend fun restoreBackgrounds(
+    entries: List<BackedUpBackground>,
+    database: VoidDatabase,
+    repository: BackgroundRepository,
+) {
+    if (entries.isEmpty()) return
+    val restored = entries.mapNotNull { entry ->
+        val scope = runCatching { BackgroundScope.valueOf(entry.scope) }.getOrNull()
+            ?: return@mapNotNull null
+        val kind = runCatching { BackgroundKind.valueOf(entry.kind) }.getOrNull()
+            ?: return@mapNotNull null
+        val pageId = if (scope == BackgroundScope.PAGE) {
+            val x = entry.pageCoordX ?: return@mapNotNull null
+            val y = entry.pageCoordY ?: return@mapNotNull null
+            database.pageDao().getByCoordOnce(x, y)?.pageId ?: return@mapNotNull null
+        } else {
+            null
+        }
+        PageBackground(
+            scope = scope,
+            pageId = pageId,
+            kind = kind,
+            colorHex = entry.colorHex,
+            gradientStops = entry.gradientSpec?.let(::decodeGradientStops) ?: emptyList(),
+            gradientAngle = entry.gradientAngle,
+            imageToken = entry.imageToken,
+        )
+    }
+    repository.importAll(restored)
+    entries.forEach { entry ->
+        val token = entry.imageToken ?: return@forEach
+        val encoded = entry.imageBase64 ?: return@forEach
+        runCatching {
+            val bytes = Base64.decode(encoded, Base64.DEFAULT)
+            repository.importImage(token, bytes)
         }
     }
 }
@@ -568,6 +845,7 @@ private fun HomeScreen(
     wallHit: SwipeDirection? = null,
     onWallHitCleared: () -> Unit = {},
     onOpenOverview: () -> Unit = {},
+    pageBackground: @Composable () -> Unit = {},
 ) {
     val page = pages.firstOrNull { it.pageId == currentPageId } ?: return
     val pageItems = items.filter { it.pageId == currentPageId }
@@ -596,6 +874,7 @@ private fun HomeScreen(
                     Text("WIDGET NEEDS REBIND", style = MaterialTheme.typography.labelSmall)
                 }
             },
+            pageBackground = pageBackground,
             modifier = Modifier.fillMaxSize(),
         )
 

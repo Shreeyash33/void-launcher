@@ -2,6 +2,7 @@ package com.ark.voidlauncher.data.backup
 
 import com.ark.voidlauncher.data.db.AppCustomizationEntity
 import com.ark.voidlauncher.domain.AppFontWeight
+import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.FontFamily
 import com.ark.voidlauncher.domain.GridItemType
@@ -68,6 +69,19 @@ class BackupManagerTest {
         homeCoordX = 0,
         homeCoordY = 0,
         theme = "DARK",
+        orientation = "LANDSCAPE",
+        customPalette = CustomPalette.darkDefault(),
+        backgrounds = listOf(
+            BackedUpBackground(scope = "GLOBAL", kind = "COLOR", colorHex = "#FF101010"),
+            BackedUpBackground(
+                scope = "PAGE",
+                pageCoordX = 1,
+                pageCoordY = 0,
+                kind = "GRADIENT",
+                gradientSpec = "#FF000000@0.0|#FFFFFFFF@1.0",
+                gradientAngle = 90f,
+            ),
+        ),
     )
 
     /**
@@ -186,5 +200,8 @@ class BackupManagerTest {
         assertEquals(0, decoded.homeCoordX)
         assertEquals(0, decoded.homeCoordY)
         assertEquals("", decoded.theme)
+        assertEquals("PORTRAIT", decoded.orientation)
+        assertNull(decoded.customPalette)
+        assertTrue(decoded.backgrounds.isEmpty())
     }
 }

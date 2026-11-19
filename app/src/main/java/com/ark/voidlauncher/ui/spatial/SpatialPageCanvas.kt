@@ -56,6 +56,9 @@ fun SpatialPageCanvas(
     onLongPress: () -> Unit,
     onWallHit: (SwipeDirection) -> Unit,
     widgetContent: @Composable (GridItemEntity) -> Unit,
+    pageBackground: @Composable () -> Unit = {
+        Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
+    },
     modifier: Modifier = Modifier,
 ) {
     val currentPage = remember(pages, currentPageId) {
@@ -75,6 +78,8 @@ fun SpatialPageCanvas(
             .clipToBounds()
             .background(MaterialTheme.colorScheme.background),
     ) {
+        // Stationary background: it must not travel with the translating page.
+        pageBackground()
         Box(
             modifier = Modifier
                 .fillMaxSize()

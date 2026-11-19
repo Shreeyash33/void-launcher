@@ -3,6 +3,7 @@ package com.ark.voidlauncher.data.backup
 import android.content.Context
 import android.net.Uri
 import com.ark.voidlauncher.data.db.AppCustomizationEntity
+import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.FontFamily
 import com.ark.voidlauncher.domain.AppFontWeight
@@ -44,6 +45,9 @@ object BackupManager {
             put("homeCoordX", payload.homeCoordX)
             put("homeCoordY", payload.homeCoordY)
             put("theme", payload.theme)
+            put("orientation", payload.orientation)
+            payload.customPalette?.let { put("customPalette", paletteJson(it)) }
+            put("backgrounds", arrayJson(payload.backgrounds, ::backgroundJson))
             put("pages", arrayJson(payload.pages, ::pageJson))
             put("edges", arrayJson(payload.edges, ::edgeJson))
             put("items", arrayJson(payload.items, ::itemJson))
@@ -71,6 +75,11 @@ object BackupManager {
             homeCoordX = root.optInt("homeCoordX", 0),
             homeCoordY = root.optInt("homeCoordY", 0),
             theme = root.nullableString("theme") ?: "",
+            orientation = root.nullableString("orientation") ?: "PORTRAIT",
+            customPalette = runCatching {
+                root.optJSONObject("customPalette")?.let(::paletteFromJson)
+            }.getOrNull(),
+            backgrounds = rows(root.arrayOrNull("backgrounds"), ::backgroundFromJson),
         )
     }.getOrNull()
 
@@ -153,6 +162,29 @@ object BackupManager {
         c.textTransform?.let { put("textTransform", it.name) }
     }
 
+    private fun paletteJson(p: CustomPalette): JSONObject = JSONObject().apply {
+        put("background", p.background)
+        put("surface", p.surface)
+        put("surfaceVariant", p.surfaceVariant)
+        put("onBackground", p.onBackground)
+        put("onSurface", p.onSurface)
+        put("primary", p.primary)
+        put("secondary", p.secondary)
+        put("outline", p.outline)
+    }
+
+    private fun backgroundJson(b: BackedUpBackground): JSONObject = JSONObject().apply {
+        put("scope", b.scope)
+        b.pageCoordX?.let { put("pageCoordX", it) }
+        b.pageCoordY?.let { put("pageCoordY", it) }
+        put("kind", b.kind)
+        b.colorHex?.let { put("colorHex", it) }
+        b.gradientSpec?.let { put("gradientSpec", it) }
+        put("gradientAngle", b.gradientAngle.toDouble())
+        b.imageToken?.let { put("imageToken", it) }
+        b.imageBase64?.let { put("imageBase64", it) }
+    }
+
     // ------------------------------------------------------------------
     // Deserialization helpers — a null result means "skip this row".
     // ------------------------------------------------------------------
@@ -167,6 +199,10 @@ object BackupManager {
 
     private fun JSONObject.nullableFloat(key: String): Float? = runCatching {
         if (has(key) && !isNull(key)) getDouble(key).toFloat() else null
+    }.getOrNull()
+
+    private fun JSONObject.nullableInt(key: String): Int? = runCatching {
+        if (has(key) && !isNull(key)) getInt(key) else null
     }.getOrNull()
 
     private inline fun <reified T : Enum<T>> JSONObject.nullableEnum(key: String): T? {
@@ -235,6 +271,36 @@ object BackupManager {
             textColorHex = obj.nullableString("textColorHex"),
             textAlign = obj.nullableEnum<TextAlign>("textAlign"),
             textTransform = obj.nullableEnum<TextTransform>("textTransform"),
+        )
+    }.getOrNull()
+
+    private fun paletteFromJson(obj: JSONObject): CustomPalette? = runCatching {
+        CustomPalette(
+            background = obj.getString("background"),
+            surface = obj.getString("surface"),
+            surfaceVariant = obj.getString("surfaceVariant"),
+            onBackground = obj.getString("onBackground"),
+            onSurface = obj.getString("onSurface"),
+            primary = obj.getString("primary"),
+            secondary = obj.getString("secondary"),
+            outline = obj.getString("outline"),
+        )
+    }.getOrNull()
+
+    private fun backgroundFromJson(obj: JSONObject): BackedUpBackground? = runCatching {
+        val scope = obj.getString("scope")
+        val kind = obj.getString("kind")
+        if (scope.isBlank() || kind.isBlank()) return@runCatching null
+        BackedUpBackground(
+            scope = scope,
+            pageCoordX = obj.nullableInt("pageCoordX"),
+            pageCoordY = obj.nullableInt("pageCoordY"),
+            kind = kind,
+            colorHex = obj.nullableString("colorHex"),
+            gradientSpec = obj.nullableString("gradientSpec"),
+            gradientAngle = obj.nullableFloat("gradientAngle") ?: 0f,
+            imageToken = obj.nullableString("imageToken"),
+            imageBase64 = obj.nullableString("imageBase64"),
         )
     }.getOrNull()
 }
