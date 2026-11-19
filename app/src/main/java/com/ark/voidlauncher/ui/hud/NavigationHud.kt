@@ -1,5 +1,7 @@
 package com.ark.voidlauncher.ui.hud
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -16,9 +18,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
@@ -52,17 +58,30 @@ fun NavigationHud(
     // only on the home page, so this tag reflects home in the standard setup.
     val isHome = page.coordX == HOME_COORD_X && page.coordY == HOME_COORD_Y
 
+    // Keep the last side long enough to fade the bar out after the host clears
+    // the wall hit.
+    var flashDirection by remember { mutableStateOf<SwipeDirection?>(null) }
+    val flashAlpha by animateFloatAsState(
+        targetValue = if (wallHit == null) 0f else 1f,
+        animationSpec = tween(
+            durationMillis = if (wallHit == null) FLASH_FADE_OUT_MS else FLASH_FADE_IN_MS,
+        ),
+        label = "wallFlashAlpha",
+    )
+
     LaunchedEffect(wallHit) {
         if (wallHit != null) {
+            flashDirection = wallHit
             delay(WALL_FEEDBACK_MS)
             onWallHitCleared()
         }
     }
 
+    val visibleFlash = wallHit ?: flashDirection
     Box(modifier = modifier) {
         Box(modifier = Modifier.matchParentSize()) {
-            if (wallHit != null) {
-                WallFlash(direction = wallHit)
+            if (visibleFlash != null && flashAlpha > 0f) {
+                WallFlash(direction = visibleFlash, flashAlpha = flashAlpha)
             }
 
             Column(
@@ -90,7 +109,13 @@ fun NavigationHud(
                         Text(
                             text = "HOME",
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier
+                                .background(
+                                    color = MaterialTheme.colorScheme.primary,
+                                    shape = MaterialTheme.shapes.small,
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
                         )
                     }
                 }
@@ -188,7 +213,7 @@ private fun DirectionIndicator(
 }
 
 @Composable
-private fun BoxScope.WallFlash(direction: SwipeDirection) {
+private fun BoxScope.WallFlash(direction: SwipeDirection, flashAlpha: Float) {
     val barModifier = when (direction) {
         SwipeDirection.UP -> Modifier
             .align(Alignment.TopCenter)
@@ -211,7 +236,9 @@ private fun BoxScope.WallFlash(direction: SwipeDirection) {
             .width(WALL_BAR_THICKNESS)
     }
     Box(
-        modifier = barModifier.background(MaterialTheme.colorScheme.error),
+        modifier = barModifier
+            .background(MaterialTheme.colorScheme.error)
+            .graphicsLayer { alpha = flashAlpha },
     )
 }
 
@@ -233,6 +260,8 @@ private fun neighbourLabel(page: PageInfo, direction: SwipeDirection): String {
 private const val HOME_COORD_X = 0
 private const val HOME_COORD_Y = 0
 private const val WALL_FEEDBACK_MS = 450L
+private const val FLASH_FADE_IN_MS = 80
+private const val FLASH_FADE_OUT_MS = 220
 private val WALL_BAR_THICKNESS = 10.dp
 private const val DIM_ALPHA = 0.3f
 private const val LABEL_ALPHA = 0.7f
