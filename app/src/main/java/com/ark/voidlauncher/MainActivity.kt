@@ -48,6 +48,7 @@ import com.ark.voidlauncher.data.repository.LauncherRepository
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.placement.PlacementResolver
 import com.ark.voidlauncher.domain.placement.PlacementResult
 import com.ark.voidlauncher.system.accessibility.AccessibilityBridge
@@ -57,12 +58,15 @@ import com.ark.voidlauncher.system.widgets.WidgetHostView
 import com.ark.voidlauncher.ui.backup.BackupScreen
 import com.ark.voidlauncher.ui.drawer.AppDrawerOverlay
 import com.ark.voidlauncher.ui.editor.AppTypographyEditorSheet
+import com.ark.voidlauncher.ui.hud.NavigationHud
+import com.ark.voidlauncher.ui.overview.PageOverview
 import com.ark.voidlauncher.ui.editor.EdgeChange
 import com.ark.voidlauncher.ui.editor.EditorValidation
 import com.ark.voidlauncher.ui.editor.ItemEditorSheet
 import com.ark.voidlauncher.ui.editor.PageEditorSheet
 import com.ark.voidlauncher.ui.settings.SettingsScreen as SettingsSurface
 import com.ark.voidlauncher.ui.spatial.SpatialPageCanvas
+import com.ark.voidlauncher.ui.theme.ThemePickerSheet
 import com.ark.voidlauncher.ui.theme.VoidTheme
 import kotlinx.coroutines.launch
 
@@ -101,6 +105,9 @@ class MainActivity : ComponentActivity() {
             var screen by remember { mutableStateOf(Screen.HOME) }
             var editor by remember { mutableStateOf(Editor.NONE) }
             var message by remember { mutableStateOf<String?>(null) }
+            var overview by remember { mutableStateOf(false) }
+            var wallHit by remember { mutableStateOf<SwipeDirection?>(null) }
+            var themePicker by remember { mutableStateOf(false) }
             val accessibilityEnabled = remember { AccessibilityBridge.isEnabled(context) }
 
             val exportLauncher = rememberLauncherForActivityResult(
@@ -208,8 +215,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            BackHandler(enabled = screen != Screen.HOME || editor != Editor.NONE) {
-                if (editor != Editor.NONE) editor = Editor.NONE else screen = Screen.HOME
+            BackHandler(
+                enabled = themePicker || overview || screen != Screen.HOME || editor != Editor.NONE,
+            ) {
+                when {
+                    themePicker -> themePicker = false
+                    overview -> overview = false
+                    editor != Editor.NONE -> editor = Editor.NONE
+                    screen != Screen.HOME -> screen = Screen.HOME
+                }
             }
 
             fun openWidgetPicker() {
@@ -259,6 +273,11 @@ class MainActivity : ComponentActivity() {
                             onOpenDrawer = { screen = Screen.DRAWER },
                             onOpenSettings = { screen = Screen.SETTINGS },
                             onEditItems = { editor = Editor.ITEMS },
+                            onLongPress = { overview = true },
+                            onWallHit = { wallHit = it },
+                            wallHit = wallHit,
+                            onWallHitCleared = { wallHit = null },
+                            onOpenOverview = { overview = true },
                         )
 
                         Screen.DRAWER -> AppDrawerOverlay(
@@ -302,6 +321,34 @@ class MainActivity : ComponentActivity() {
                             widgetController = widgetController,
                             onPick = ::beginAddWidget,
                             onBack = { screen = Screen.SETTINGS },
+                        )
+                    }
+
+                    if (overview) {
+                        PageOverview(
+                            pages = pages,
+                            edges = edges,
+                            items = items,
+                            currentPageId = currentPageId,
+                            homePageId = homePageId,
+                            onSelectPage = { id ->
+                                currentPageId = id
+                                overview = false
+                            },
+                            onClose = { overview = false },
+                            onThemes = { themePicker = true },
+                            onSettings = {
+                                overview = false
+                                screen = Screen.SETTINGS
+                            },
+                            onWidgets = {
+                                overview = false
+                                screen = Screen.WIDGET_PICKER
+                            },
+                            onPageManagement = {
+                                overview = false
+                                editor = Editor.PAGES
+                            },
                         )
                     }
 
@@ -417,6 +464,14 @@ class MainActivity : ComponentActivity() {
 
                     Editor.NONE -> Unit
                 }
+
+                if (themePicker) {
+                    ThemePickerSheet(
+                        current = themeMode,
+                        onSelect = { scope.launch { prefs.setTheme(it) } },
+                        onDismiss = { themePicker = false },
+                    )
+                }
             }
         }
     }
@@ -509,7 +564,10 @@ private fun HomeScreen(
     onOpenSettings: () -> Unit,
     onEditItems: () -> Unit,
     onLongPress: () -> Unit = {},
-    onWallHit: (com.ark.voidlauncher.domain.SwipeDirection) -> Unit = {},
+    onWallHit: (SwipeDirection) -> Unit = {},
+    wallHit: SwipeDirection? = null,
+    onWallHitCleared: () -> Unit = {},
+    onOpenOverview: () -> Unit = {},
 ) {
     val page = pages.firstOrNull { it.pageId == currentPageId } ?: return
     val pageItems = items.filter { it.pageId == currentPageId }
@@ -564,12 +622,21 @@ private fun HomeScreen(
 
         if (pageItems.isEmpty()) {
             Text(
-                text = "SWIPE TO MOVE · DOUBLE-TAP FOR HOME\nSETTINGS → ADD WIDGET",
+                text = "SWIPE TO MOVE · DOUBLE-TAP FOR HOME\nLONG-PRESS FOR MAP",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                 modifier = Modifier.align(Alignment.Center),
             )
         }
+
+        NavigationHud(
+            page = page,
+            edges = edges,
+            wallHit = wallHit,
+            onWallHitCleared = onWallHitCleared,
+            onOpenOverview = onOpenOverview,
+            modifier = Modifier.matchParentSize(),
+        )
     }
 }
 

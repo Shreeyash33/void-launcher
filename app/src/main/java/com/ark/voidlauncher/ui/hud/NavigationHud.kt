@@ -135,7 +135,7 @@ fun NavigationHud(
                 page = page,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 20.dp),
+                    .padding(bottom = 88.dp),
             )
             DirectionIndicator(
                 direction = SwipeDirection.LEFT,
