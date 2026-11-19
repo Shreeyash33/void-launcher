@@ -31,17 +31,29 @@ class BackgroundRepository(
      * intentionally discarded: the existing row is deleted first, and Room
      * generates a fresh id, so a stale id cannot replace an unrelated row.
      */
-    suspend fun save(background: PageBackground): Long = withContext(Dispatchers.IO) {
-        when (background.scope) {
-            BackgroundScope.GLOBAL -> database.withTransaction {
-                dao.clearGlobal()
-                dao.upsert(background.copy(id = 0L, pageId = null).toEntity())
+    suspend fun save(
+        background: PageBackground,
+        previous: PageBackground? = null,
+    ): Long = withContext(Dispatchers.IO) {
+        database.withTransaction {
+            // Changing scope moves the background: remove the row we were editing
+            // or the old scope keeps shadowing the new one (a page row always
+            // wins over the global row). Also drop an image that is no longer used.
+            if (previous != null && previous.scope != background.scope) {
+                dao.deleteById(previous.id)
             }
-            BackgroundScope.PAGE -> {
-                val pageId = requireNotNull(background.pageId) {
-                    "PAGE backgrounds require a non-null pageId"
+            if (previous?.imageToken != null && previous.imageToken != background.imageToken) {
+                deleteImage(previous.imageToken)
+            }
+            when (background.scope) {
+                BackgroundScope.GLOBAL -> {
+                    dao.clearGlobal()
+                    dao.upsert(background.copy(id = 0L, pageId = null).toEntity())
                 }
-                database.withTransaction {
+                BackgroundScope.PAGE -> {
+                    val pageId = requireNotNull(background.pageId) {
+                        "PAGE backgrounds require a non-null pageId"
+                    }
                     dao.deleteForPage(pageId)
                     dao.upsert(background.copy(id = 0L, pageId = pageId).toEntity())
                 }

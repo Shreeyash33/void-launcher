@@ -705,7 +705,7 @@ class MainActivity : ComponentActivity() {
                         isGlobal = draft?.scope != BackgroundScope.PAGE,
                         onSave = { edited ->
                             scope.launch {
-                                runCatching { backgroundRepository.save(edited) }
+                                runCatching { backgroundRepository.save(edited, previous = draft) }
                                     .onSuccess { message = "BACKGROUND SAVED" }
                                     .onFailure { message = "BACKGROUND SAVE FAILED" }
                             }

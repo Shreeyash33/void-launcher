@@ -88,7 +88,10 @@ fun BackgroundEditorSheet(
     }
     var stopDrafts by remember(currentId) {
         mutableStateOf(
-            current?.gradientStops?.map { stop ->
+            // COLOR and IMAGE backgrounds persist an empty stop list, not null.
+            // Falling back only on null would leave GRADIENT with zero stops and
+            // a permanently disabled SAVE button when switching kinds.
+            current?.gradientStops?.takeIf { it.size >= 2 }?.map { stop ->
                 StopDraft(stop.colorHex, stop.position.toString())
             } ?: listOf(
                 StopDraft(scheme.background.toArgbHex(), "0"),
