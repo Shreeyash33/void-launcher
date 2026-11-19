@@ -27,9 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.input.pointer.awaitEachGesture
-import androidx.compose.ui.input.pointer.awaitFirstDown
-import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -499,21 +496,22 @@ private fun BoxScope.FloatingWidget(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(kind, cellWidthPx, cellHeightPx, onDrop) {
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    onTouched()
-                    at = down.position
-                    var latest = down.position
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        latest = change.position
-                        at = latest
-                        if (!change.pressed) break
-                    }
-                    val col = (latest.x / cellWidthPx - 0.5f).roundToInt()
-                    val row = (latest.y / cellHeightPx - 0.5f).roundToInt()
-                    onDrop(col, row)
+                // Simplified: drag on the grid to position, release to drop.
+                // TODO: catch the in-flight long-press pointer handed off from picker.
+                detectDragGestures(
+                    onDragStart = { offset ->
+                        onTouched()
+                        at = offset
+                    },
+                    onDragEnd = {
+                        val point = at ?: return@detectDragGestures
+                        val col = (point.x / cellWidthPx - 0.5f).roundToInt()
+                        val row = (point.y / cellHeightPx - 0.5f).roundToInt()
+                        onDrop(col, row)
+                    },
+                    onDragCancel = { at = null },
+                ) { change, _ ->
+                    at = change.position
                 }
             },
     ) {
