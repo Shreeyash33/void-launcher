@@ -71,7 +71,7 @@ fun AppDrawerOverlay(
             }
             .sortedWith(
                 compareBy<AppInfo> { it.packageName !in favorites }
-                    .thenBy(String.CASE_INSENSITIVE_ORDER) { it.label }
+                    .thenBy { it.label.lowercase() }
                     .thenBy { it.label }
                     .thenBy { it.packageName },
             )
