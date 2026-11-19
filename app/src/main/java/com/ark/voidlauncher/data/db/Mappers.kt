@@ -11,6 +11,7 @@ fun PageEntity.toPageInfo(): PageInfo = PageInfo(
     gridCols = gridCols,
     gridRows = gridRows,
     isSecret = isSecret,
+    pageType = pageType,
 )
 
 fun PageInfo.toPageEntity(): PageEntity = PageEntity(
@@ -21,6 +22,7 @@ fun PageInfo.toPageEntity(): PageEntity = PageEntity(
     gridCols = gridCols,
     gridRows = gridRows,
     isSecret = isSecret,
+    pageType = pageType,
 )
 
 fun PageEdgeEntity.toEdgeInfo(): EdgeInfo = EdgeInfo(

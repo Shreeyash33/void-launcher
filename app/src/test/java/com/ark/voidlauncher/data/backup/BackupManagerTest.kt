@@ -2,11 +2,14 @@ package com.ark.voidlauncher.data.backup
 
 import com.ark.voidlauncher.data.db.AppCustomizationEntity
 import com.ark.voidlauncher.domain.AppFontWeight
+import com.ark.voidlauncher.domain.BuiltInWidgetKind
+import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.FontFamily
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.TextAlign
 import com.ark.voidlauncher.domain.TextTransform
@@ -21,7 +24,10 @@ class BackupManagerTest {
 
     private fun samplePayload(): BackupPayload = BackupPayload(
         pages = listOf(
-            PageInfo(pageId = 1, coordX = 0, coordY = 0, title = "Home"),
+            PageInfo(
+                pageId = 1, coordX = 0, coordY = 0, title = "Home",
+                pageType = PageType.HOME,
+            ),
             PageInfo(
                 pageId = 2,
                 coordX = 1,
@@ -30,6 +36,7 @@ class BackupManagerTest {
                 gridCols = 8,
                 gridRows = 12,
                 isSecret = true,
+                pageType = PageType.APP_DRAWER,
             ),
         ),
         edges = listOf(
@@ -48,6 +55,19 @@ class BackupManagerTest {
                 3,
                 "placeholder:com.example/.SmallWidget",
                 true,
+            ),
+            BackedUpItem(
+                0, 1, GridItemType.WIDGET, 2, 3, 4, 5,
+                BuiltInWidgets.reference(BuiltInWidgetKind.APP_LIST),
+                true,
+                widgetKind = BuiltInWidgetKind.APP_LIST,
+                appListPackages = "com.example.app\ncom.example.other",
+            ),
+            BackedUpItem(
+                0, 1, GridItemType.WIDGET, 6, 0, 1, 1,
+                BuiltInWidgets.reference(BuiltInWidgetKind.CLOCK),
+                true,
+                widgetKind = BuiltInWidgetKind.CLOCK,
             ),
         ),
         customizations = listOf(
@@ -203,5 +223,44 @@ class BackupManagerTest {
         assertEquals("PORTRAIT", decoded.orientation)
         assertNull(decoded.customPalette)
         assertTrue(decoded.backgrounds.isEmpty())
+    }
+
+    @Test
+    fun builtInWidgetsRoundTripWithKindAndMembership() {
+        val payload = samplePayload()
+        val decoded = BackupManager.fromJson(BackupManager.toJson(payload))
+
+        assertNotNull(decoded)
+        decoded!!
+        assertEquals(PageType.HOME, decoded.pages[0].pageType)
+        assertEquals(PageType.APP_DRAWER, decoded.pages[1].pageType)
+
+        val appList = decoded.items.first { it.widgetKind == BuiltInWidgetKind.APP_LIST }
+        assertEquals(
+            "com.example.app\ncom.example.other",
+            appList.appListPackages,
+        )
+        assertEquals(BuiltInWidgets.reference(BuiltInWidgetKind.APP_LIST), appList.referenceId)
+
+        val clock = decoded.items.first { it.widgetKind == BuiltInWidgetKind.CLOCK }
+        assertNull(clock.appListPackages)
+        assertEquals(BuiltInWidgets.reference(BuiltInWidgetKind.CLOCK), clock.referenceId)
+    }
+
+    @Test
+    fun legacyVersionOneRowsDefaultToWidgetTypeAndNoBuiltInFields() {
+        val decoded = BackupManager.fromJson(
+            document(
+                pages = """[{"pageId": 1, "coordX": 0, "coordY": 0, "title": "Legacy"}]""",
+                items = """[{"pageCoordX": 0, "pageCoordY": 0, "itemType": "WIDGET", "col": 0, "row": 0, "colSpan": 1, "rowSpan": 1, "referenceId": "placeholder:com.example/.Old"}]""",
+            ),
+        )
+
+        assertNotNull(decoded)
+        decoded!!
+        assertEquals(PageType.WIDGET, decoded.pages[0].pageType)
+        assertEquals(1, decoded.items.size)
+        assertNull(decoded.items[0].widgetKind)
+        assertNull(decoded.items[0].appListPackages)
     }
 }

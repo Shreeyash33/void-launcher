@@ -8,6 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.ark.voidlauncher.data.background.BackgroundDao
 import com.ark.voidlauncher.data.background.BackgroundEntity
+import com.ark.voidlauncher.domain.PageType
 
 @Database(
     entities = [
@@ -17,7 +18,7 @@ import com.ark.voidlauncher.data.background.BackgroundEntity
         GridItemEntity::class,
         BackgroundEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class VoidDatabase : RoomDatabase() {
@@ -52,7 +53,7 @@ abstract class VoidDatabase : RoomDatabase() {
                     DATABASE_NAME,
                 )
                     .addCallback(SeedCallback())
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .build()
                     .also { instance = it }
             }
@@ -88,6 +89,35 @@ abstract class VoidDatabase : RoomDatabase() {
                 )
             }
         }
+
+        /**
+         * v4 adds page roles and built-in widget metadata. Existing rows stay
+         * usable: unknown page roles become WIDGET and legacy widgets keep
+         * their null [widgetKind], which is how they remain distinguishable.
+         * The seeded origin and its DOWN neighbour take the HOME/APP_DRAWER
+         * roles so upgrades match a fresh install.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `pages` ADD COLUMN `pageType` TEXT NOT NULL " +
+                        "DEFAULT '${PageType.WIDGET.name}'",
+                )
+                db.execSQL("ALTER TABLE `grid_items` ADD COLUMN `widgetKind` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `grid_items` ADD COLUMN `appListPackages` TEXT DEFAULT NULL")
+                db.execSQL(
+                    "UPDATE `pages` SET `pageType` = ? WHERE `coordX` = ? AND `coordY` = ?",
+                    arrayOf<Any>(PageType.HOME.name, ORIGIN_COORD_X, ORIGIN_COORD_Y),
+                )
+                db.execSQL(
+                    "UPDATE `pages` SET `pageType` = ? WHERE `coordX` = ? AND `coordY` = ?",
+                    arrayOf<Any>(PageType.APP_DRAWER.name, APP_DRAWER_COORD_X, APP_DRAWER_COORD_Y),
+                )
+            }
+        }
+
+        const val APP_DRAWER_COORD_X = 0
+        const val APP_DRAWER_COORD_Y = 1
     }
 
     /**
@@ -109,10 +139,20 @@ abstract class VoidDatabase : RoomDatabase() {
 
         fun seedUpgradeMap(db: SupportSQLiteDatabase) {
             if (pageIdAt(db, ORIGIN_COORD_X, ORIGIN_COORD_Y) == null) {
-                insertPage(db, ORIGIN_COORD_X, ORIGIN_COORD_Y, PageEntity.ORIGIN_TITLE)
+                insertPage(
+                    db, ORIGIN_COORD_X, ORIGIN_COORD_Y,
+                    PageEntity.ORIGIN_TITLE, PageType.HOME,
+                )
             }
             DEFAULT_NEIGHBORS.forEach { (x, y) ->
-                if (pageIdAt(db, x, y) == null) insertPage(db, x, y, "Page $x,$y")
+                if (pageIdAt(db, x, y) == null) {
+                    val type = if (x == APP_DRAWER_COORD_X && y == APP_DRAWER_COORD_Y) {
+                        PageType.APP_DRAWER
+                    } else {
+                        PageType.WIDGET
+                    }
+                    insertPage(db, x, y, "Page $x,$y", type)
+                }
             }
             if (countRows(db, "page_edges") == 0) seedDefaultEdges(db)
         }
@@ -125,7 +165,10 @@ abstract class VoidDatabase : RoomDatabase() {
             if (countRows(db, "pages") == 0 &&
                 pageIdAt(db, ORIGIN_COORD_X, ORIGIN_COORD_Y) == null
             ) {
-                insertPage(db, ORIGIN_COORD_X, ORIGIN_COORD_Y, PageEntity.ORIGIN_TITLE)
+                insertPage(
+                    db, ORIGIN_COORD_X, ORIGIN_COORD_Y,
+                    PageEntity.ORIGIN_TITLE, PageType.HOME,
+                )
             }
         }
 
@@ -159,11 +202,22 @@ abstract class VoidDatabase : RoomDatabase() {
             )
         }
 
-        private fun insertPage(db: SupportSQLiteDatabase, x: Int, y: Int, title: String) {
+        private fun insertPage(
+            db: SupportSQLiteDatabase,
+            x: Int,
+            y: Int,
+            title: String,
+            pageType: PageType = PageType.WIDGET,
+        ) {
             db.execSQL(
-                "INSERT INTO `pages` (`coordX`, `coordY`, `title`, `gridCols`, `gridRows`, `isSecret`) " +
-                    "VALUES (?, ?, ?, ?, ?, 0)",
-                arrayOf<Any>(x, y, title, PageEntity.DEFAULT_GRID_COLS, PageEntity.DEFAULT_GRID_ROWS),
+                "INSERT INTO `pages` " +
+                    "(`coordX`, `coordY`, `title`, `gridCols`, `gridRows`, `isSecret`, `pageType`) " +
+                    "VALUES (?, ?, ?, ?, ?, 0, ?)",
+                arrayOf<Any>(
+                    x, y, title,
+                    PageEntity.DEFAULT_GRID_COLS, PageEntity.DEFAULT_GRID_ROWS,
+                    pageType.name,
+                ),
             )
         }
 

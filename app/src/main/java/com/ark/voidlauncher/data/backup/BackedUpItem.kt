@@ -1,5 +1,6 @@
 package com.ark.voidlauncher.data.backup
 
+import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.GridItemType
 
 /**
@@ -14,6 +15,10 @@ import com.ark.voidlauncher.domain.GridItemType
  *
  * The live Android `appWidgetId` is deliberately NOT part of a backup. Widgets
  * restored from a file are placeholders that must be rebound to a fresh host id.
+ *
+ * Built-in widgets instead carry [widgetKind] and, for APP LIST, the sorted
+ * [appListPackages] membership. Both keys are optional so version-1 files from
+ * before built-ins existed still decode to null and remain valid.
  */
 data class BackedUpItem(
     val pageCoordX: Int,
@@ -25,4 +30,6 @@ data class BackedUpItem(
     val rowSpan: Int,
     val referenceId: String,
     val allowOverlap: Boolean,
+    val widgetKind: BuiltInWidgetKind? = null,
+    val appListPackages: String? = null,
 )

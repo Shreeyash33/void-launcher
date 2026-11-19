@@ -35,6 +35,13 @@ fun swipeDestination(coordX: Int, coordY: Int, gesture: SwipeDirection): Pair<In
 
 enum class GridItemType { APP_SHORTCUT, WIDGET }
 
+/**
+ * Page role. [HOME] is the configured home coordinate, [APP_DRAWER] hosts the
+ * app drawer, and every other page is a [WIDGET] page. Pages may only be
+ * navigated to by the user; the role is data, not a UI overlay.
+ */
+enum class PageType { HOME, WIDGET, APP_DRAWER }
+
 enum class FontFamily { MONOSPACE, SANS, SERIF, DISPLAY }
 
 enum class AppFontWeight { LIGHT, NORMAL, MEDIUM, BOLD }
@@ -51,6 +58,7 @@ data class PageInfo(
     val gridCols: Int = DEFAULT_GRID_COLS,
     val gridRows: Int = DEFAULT_GRID_ROWS,
     val isSecret: Boolean = false,
+    val pageType: PageType = PageType.WIDGET,
 ) {
     companion object {
         const val DEFAULT_GRID_COLS = 10

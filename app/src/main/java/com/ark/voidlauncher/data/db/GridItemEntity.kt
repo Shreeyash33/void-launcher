@@ -5,11 +5,15 @@ import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.GridItemType
 
 /**
- * A placed item on a page. [referenceId] holds a package name for APP_SHORTCUT
- * or a widget id string for WIDGET. No unique cell index: widgets may overlap.
+ * A placed item on a page. [referenceId] holds a package name for APP_SHORTCUT,
+ * a numeric appWidgetId for legacy/system WIDGET, or a `builtin:` sentinel for
+ * built-in widgets. [widgetKind] and [appListPackages] carry the built-in
+ * configuration; legacy rows leave both null. No unique cell index: widgets
+ * may overlap.
  */
 @Entity(
     tableName = "grid_items",
@@ -40,4 +44,6 @@ data class GridItemEntity(
     val referenceId: String,
     val themeId: String? = null,
     val allowOverlap: Boolean = false,
+    val widgetKind: BuiltInWidgetKind? = null,
+    val appListPackages: String? = null,
 )

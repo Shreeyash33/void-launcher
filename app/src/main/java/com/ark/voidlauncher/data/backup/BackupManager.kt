@@ -3,12 +3,14 @@ package com.ark.voidlauncher.data.backup
 import android.content.Context
 import android.net.Uri
 import com.ark.voidlauncher.data.db.AppCustomizationEntity
+import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.FontFamily
 import com.ark.voidlauncher.domain.AppFontWeight
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.TextAlign
 import com.ark.voidlauncher.domain.TextTransform
@@ -127,6 +129,7 @@ object BackupManager {
         put("gridCols", page.gridCols)
         put("gridRows", page.gridRows)
         put("isSecret", page.isSecret)
+        put("pageType", page.pageType.name)
     }
 
     private fun edgeJson(edge: EdgeInfo): JSONObject = JSONObject().apply {
@@ -146,6 +149,8 @@ object BackupManager {
         // Portable identity only: never the live appWidgetId.
         put("referenceId", item.referenceId)
         put("allowOverlap", item.allowOverlap)
+        item.widgetKind?.let { put("widgetKind", it.name) }
+        item.appListPackages?.let { put("appListPackages", it) }
     }
 
     private fun customizationJson(c: AppCustomizationEntity): JSONObject = JSONObject().apply {
@@ -231,6 +236,7 @@ object BackupManager {
             gridCols = obj.optInt("gridCols", PageInfo.DEFAULT_GRID_COLS),
             gridRows = obj.optInt("gridRows", PageInfo.DEFAULT_GRID_ROWS),
             isSecret = obj.optBoolean("isSecret", false),
+            pageType = obj.nullableEnum<PageType>("pageType") ?: PageType.WIDGET,
         )
     }.getOrNull()
 
@@ -253,6 +259,8 @@ object BackupManager {
             rowSpan = obj.getInt("rowSpan"),
             referenceId = obj.getString("referenceId"),
             allowOverlap = obj.optBoolean("allowOverlap", false),
+            widgetKind = obj.nullableEnum<BuiltInWidgetKind>("widgetKind"),
+            appListPackages = obj.nullableString("appListPackages"),
         )
     }.getOrNull()
 

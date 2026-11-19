@@ -3,6 +3,7 @@ package com.ark.voidlauncher.data.db
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.ark.voidlauncher.domain.PageType
 
 /** A page in the launcher grid graph. Coordinates are globally unique. */
 @Entity(
@@ -18,6 +19,7 @@ data class PageEntity(
     val gridCols: Int = DEFAULT_GRID_COLS,
     val gridRows: Int = DEFAULT_GRID_ROWS,
     val isSecret: Boolean = false,
+    val pageType: PageType = PageType.WIDGET,
 ) {
     companion object {
         const val DEFAULT_TITLE = "Page"

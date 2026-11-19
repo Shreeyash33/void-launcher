@@ -4,6 +4,8 @@ import androidx.room.withTransaction
 import com.ark.voidlauncher.LauncherPrefs
 import com.ark.voidlauncher.ThemeMode
 import com.ark.voidlauncher.data.backup.BackupPayload
+import com.ark.voidlauncher.domain.BuiltInWidgetKind
+import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.data.db.AppCustomizationEntity
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.data.db.PageEdgeEntity
@@ -14,6 +16,7 @@ import com.ark.voidlauncher.data.db.toPageInfo
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -25,8 +28,28 @@ class LauncherRepository(
     private val database: VoidDatabase,
     private val prefs: LauncherPrefs,
 ) {
-    val pages: Flow<List<PageInfo>> = database.pageDao().observeAll().map { rows ->
-        rows.map { it.toPageInfo() }
+    /**
+     * Page roles are derived, not trusted blindly: APP_DRAWER is authoritative,
+     * the configured home coordinate is HOME, and everything else is a widget
+     * page. This keeps old rows (stored as WIDGET) correct after a home change
+     * without needing a rewrite on every preference update.
+     */
+    val pages: Flow<List<PageInfo>> = combine(
+        database.pageDao().observeAll(),
+        prefs.homeCoord,
+    ) { rows, (homeX, homeY) ->
+        rows.map { row ->
+            val effective = when {
+                row.pageType == PageType.APP_DRAWER -> PageType.APP_DRAWER
+                row.coordX == homeX && row.coordY == homeY -> PageType.HOME
+                else -> PageType.WIDGET
+            }
+            row.toPageInfo().copy(pageType = effective)
+        }
+    }
+
+    val appDrawerPageId: Flow<Long?> = pages.map { list ->
+        list.firstOrNull { it.pageType == PageType.APP_DRAWER }?.pageId
     }
 
     val edges: Flow<List<EdgeInfo>> = database.pageEdgeDao().observeAll().map { rows ->
@@ -81,6 +104,8 @@ class LauncherRepository(
     suspend fun setHomeCoord(x: Int, y: Int) {
         if (x !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) return
         if (y !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) return
+        // The drawer is a dedicated destination; it must never become HOME.
+        if (database.pageDao().getByCoordOnce(x, y)?.pageType == PageType.APP_DRAWER) return
         prefs.setHomeCoord(x, y)
     }
 
@@ -114,6 +139,33 @@ class LauncherRepository(
             allowOverlap = true,
         ),
     )
+
+    /** Creates a 1×1 built-in widget. Placement is resolved by the caller. */
+    suspend fun addBuiltInWidget(
+        kind: BuiltInWidgetKind,
+        pageId: Long,
+        col: Int,
+        row: Int,
+    ): Long = database.gridItemDao().insert(
+        GridItemEntity(
+            pageId = pageId,
+            itemType = GridItemType.WIDGET,
+            col = col,
+            row = row,
+            referenceId = BuiltInWidgets.reference(kind),
+            allowOverlap = true,
+            widgetKind = kind,
+        ),
+    )
+
+    suspend fun setAppListPackages(itemId: Long, packages: List<String>) {
+        val item = database.gridItemDao().observeAll().first()
+            .firstOrNull { it.itemId == itemId } ?: return
+        if (item.widgetKind != BuiltInWidgetKind.APP_LIST) return
+        database.gridItemDao().update(
+            item.copy(appListPackages = BuiltInWidgets.encodePackages(packages)),
+        )
+    }
 
     suspend fun moveItem(itemId: Long, col: Int, row: Int) {
         val item = database.gridItemDao().observeAll().first()
@@ -185,6 +237,7 @@ class LauncherRepository(
                         gridCols = page.gridCols,
                         gridRows = page.gridRows,
                         isSecret = page.isSecret,
+                        pageType = page.pageType,
                     ),
                 )
                 idMap[page.pageId] = newId
@@ -203,6 +256,42 @@ class LauncherRepository(
                 idMap.putIfAbsent(VoidDatabase.ORIGIN_PAGE_ID, originId)
             }
 
+            // Old backups predate page roles. Guarantee a drawer so APPS always
+            // has a destination, reusing the seeded DOWN neighbour when free.
+            if (database.pageDao().observeAll().first()
+                .none { it.pageType == PageType.APP_DRAWER }
+            ) {
+                val x = VoidDatabase.APP_DRAWER_COORD_X
+                val y = VoidDatabase.APP_DRAWER_COORD_Y
+                val occupant = database.pageDao().getByCoordOnce(x, y)
+                val drawerId = when {
+                    occupant == null -> database.pageDao().insert(
+                        PageEntity(
+                            coordX = x, coordY = y, title = "App drawer",
+                            pageType = PageType.APP_DRAWER,
+                        ),
+                    )
+                    occupant.pageType != PageType.HOME -> {
+                        database.pageDao().update(
+                            occupant.copy(pageType = PageType.APP_DRAWER),
+                        )
+                        occupant.pageId
+                    }
+                    else -> null
+                }
+                if (drawerId != null) {
+                    database.pageEdgeDao().insert(
+                        PageEdgeEntity(
+                            fromPageId = database.pageDao().getByCoordOnce(
+                                payload.homeCoordX, payload.homeCoordY,
+                            )?.pageId ?: drawerId,
+                            swipeDirection = SwipeDirection.DOWN,
+                            toPageId = drawerId,
+                        ),
+                    )
+                }
+            }
+
             payload.edges.forEach { edge ->
                 val from = idMap[edge.fromPageId] ?: return@forEach
                 val to = idMap[edge.toPageId] ?: return@forEach
@@ -215,10 +304,12 @@ class LauncherRepository(
                 val pageId = database.pageDao().getByCoordOnce(
                     item.pageCoordX, item.pageCoordY,
                 )?.pageId ?: return@forEach
-                val referenceId = if (item.itemType == GridItemType.WIDGET) {
-                    "placeholder:${item.referenceId.removePrefix("placeholder:")}"
-                } else {
-                    item.referenceId
+                val referenceId = when {
+                    // Built-ins carry a stable sentinel and need no rebind.
+                    item.widgetKind != null -> item.referenceId
+                    item.itemType == GridItemType.WIDGET ->
+                        "placeholder:${item.referenceId.removePrefix("placeholder:")}"
+                    else -> item.referenceId
                 }
                 database.gridItemDao().insert(
                     GridItemEntity(
@@ -230,6 +321,8 @@ class LauncherRepository(
                         rowSpan = item.rowSpan,
                         referenceId = referenceId,
                         allowOverlap = item.allowOverlap,
+                        widgetKind = item.widgetKind,
+                        appListPackages = item.appListPackages,
                     ),
                 )
             }

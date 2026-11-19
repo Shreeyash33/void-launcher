@@ -190,12 +190,17 @@ class MainActivity : ComponentActivity() {
                                 row = item.row,
                                 colSpan = item.colSpan,
                                 rowSpan = item.rowSpan,
-                                referenceId = if (item.itemType == GridItemType.WIDGET) {
+                                referenceId = if (
+                                    item.itemType == GridItemType.WIDGET &&
+                                    item.widgetKind == null
+                                ) {
                                     item.referenceId.removePrefix("placeholder:")
                                 } else {
                                     item.referenceId
                                 },
                                 allowOverlap = item.allowOverlap,
+                                widgetKind = item.widgetKind,
+                                appListPackages = item.appListPackages,
                             )
                         },
                         customizations = customizations,
