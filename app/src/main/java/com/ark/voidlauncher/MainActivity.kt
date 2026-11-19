@@ -909,6 +909,7 @@ private fun HomeScreen(
         Text(
             text = page.title.uppercase(),
             style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.padding(20.dp),
         )
 

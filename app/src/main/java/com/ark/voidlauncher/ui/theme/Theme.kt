@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.ThemeMode
 import com.ark.voidlauncher.domain.CustomPalette
+import kotlin.math.pow
 
 /**
  * Warm-neutral dark base. The variant/secondary/outline tokens are deliberately
@@ -151,9 +152,24 @@ private fun parseArgb(value: String): Color? = try {
     null
 }
 
+/** Relative luminance used only to pick readable ink for user-chosen fill colours. */
+private fun Color.luminance(): Float {
+    fun linear(channel: Float): Float {
+        val value = channel.coerceIn(0f, 1f)
+        return if (value <= 0.03928f) value / 12.92f else ((value + 0.055f) / 1.055f).pow(2.4f)
+    }
+    return 0.2126f * linear(red) + 0.7152f * linear(green) + 0.0722f * linear(blue)
+}
+
+/** Dark ink on light fills, light ink on dark fills. */
+private fun readableOn(fill: Color): Color =
+    if (fill.luminance() > 0.35f) DarkColors.onBackground else LightColors.onBackground
+
 /**
  * Override the eight palette slots on top of the chosen base. It is all-or-nothing:
- * a single invalid field leaves the complete base scheme in effect.
+ * a single invalid field leaves the complete base scheme in effect. `on*` slots
+ * paired with a user-chosen fill are derived from that fill, otherwise e.g. the
+ * HOME badge could keep the opposite theme's ink on a custom primary colour.
  */
 private fun CustomPalette.toSchemeOrNull(base: ColorScheme): ColorScheme? {
     val bg = parseArgb(background) ?: return null
@@ -171,7 +187,10 @@ private fun CustomPalette.toSchemeOrNull(base: ColorScheme): ColorScheme? {
         onBackground = obg,
         onSurface = osf,
         primary = pri,
+        onPrimary = readableOn(pri),
         secondary = sec,
+        onSecondary = readableOn(sec),
+        onSurfaceVariant = readableOn(sv),
         outline = out,
     )
 }
