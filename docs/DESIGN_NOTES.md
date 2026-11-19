@@ -172,10 +172,10 @@ Each phase is independently reviewable. Ask for one or two at a time.
 | ID | Phase | Deliverable / acceptance | Depends on |
 |----|-------|--------------------------|------------|
 | P0 ✅ | Foundation | KSP 1.9.24-1.0.20 + Room 2.6.1 build green; entities, DAOs, validators, DataStore migration; unit tests for degree/path rules | — |
-| P1 | Widget host | One real AppWidget renders via `AppWidgetHost`; bind/configure/delete handled; lifecycle start/stop | P0 |
-| P2 | Spatial canvas + grid | 4-way swipe pager, 10x20 grid, non-overlapping app shortcuts; bounce + haptic on no edge | P0 |
-| P2a | Theme foundation | Dark/light/system tokens audited; all homepage surfaces use MaterialTheme tokens; `CustomPalette` extension point reserved (editor itself deferred) | P0 |
-| P3 | Editor | Wire/remove edges, set home coordinate, place/resize items, edit nickname/typography; validation prevents stranded pages | P0, P2 |
+| P1 ✅ | Widget host | One real AppWidget renders via `AppWidgetHost`; bind/configure/delete handled; lifecycle start/stop | P0 |
+| P2 ✅ | Spatial canvas + grid | 4-way swipe pager, 10x20 grid, non-overlapping app shortcuts; bounce + haptic on no edge | P0 |
+| P2a ✅ | Theme foundation | Dark/light/system tokens audited; all homepage surfaces use MaterialTheme tokens; `CustomPalette` extension point reserved (editor itself deferred) | P0 |
+| P3 ✅ | Editor | Wire/remove edges, set home coordinate, place/resize items, edit nickname/typography; validation prevents stranded pages | P0, P2 |
 | P4 | Drawer + settings | Text drawer with search and pin; theme switch; home/settings navigation | P0 |
 | P5 | Backup/restore | Versioned JSON export/import via SAF, including widget placeholders | P0, P3 |
 | P6 | Accessibility | Opt-in service, gesture zones, global actions; no reflection | P2 |
@@ -202,3 +202,6 @@ Parallelism: after P0, **P1, P2, and P4 can run together**. Then **P3, P5, and P
   - **Lead integration prep:** `LauncherRepository` exposes reactive pages/edges/items/customizations/home flows and all editor write callbacks. Next: add manifest entries from P1 contract, rewrite `MainActivity` against the fixed P1/P2/P3 APIs, merge the three branches, then run full build + tests.
   - **2026-11-19 (P1/P2 merged):** P1 merged at `8bde55f`, P2 merged at `59010ec`; both pushed. P1: `WidgetHostController`/`WidgetHostView`/delete receiver, compile green. P2: placement resolver + 14 tests, spatial canvas + adaptive grid, theme-token-only. Integrated `MainActivity` staged on branch `integration` at `b696606`; it wires repository flows, P1 widgets, P2 canvas, P3 editor callbacks, widget bind/picker flow, and one-hop overflow via directed edges.
   - **Gradle daemon incident:** `testDebugUnitTest` failed because "Gradle build daemon disappeared unexpectedly" during multi-worktree parallel builds — consistent with the restart/memory warning. No source corruption; all worktrees clean and `git fsck` reports only dangling checkpoint commits. Mitigation for final verification: stop stray daemons (`.\gradlew --stop`) and run `.\gradlew --no-daemon --max-workers=1 testDebugUnitTest assembleDebug` after agents finish.
+  - **2026-11-19 (P1-P3 COMPLETE):** P3 merged at `f0be547`, integration at `28cd778`, all pushed. Final verification with `.\gradlew --stop` then `.\gradlew --no-daemon --max-workers=1 testDebugUnitTest assembleDebug`: **BUILD SUCCESSFUL**. Tests: `PageGraphValidatorTest` 9/9, `PlacementResolverTest` 14/14 — 23 total, 0 failures/errors. APK: `app\build\outputs\apk\debug\app-debug.apk` (~9.4 MB).
+  - **Integration summary:** `MainActivity` now hosts the P2 spatial canvas as the home surface, P3 editor sheets from SETTINGS/EDIT, and P1 live widget views. Added home-coordinate persistence, one-hop overflow resolution through directed edges, widget provider picker + `ACTION_APPWIDGET_BIND` consent flow, stale-widget cleanup, and graph validation before persisting edge changes. App drawer from v0.1 is preserved; P4 will replace/extend it.
+  - **Known gap:** widgets are placed with a default 4x2 span at the first free cell; provider-specific sizing and resize persistence are deferred. Real-device testing on the Android 12 phone is still required for swipe feel, widget binding, and OEM behavior.
