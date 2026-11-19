@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -42,6 +43,10 @@ import kotlin.math.abs
  * there is no edge (a "wall"), haptic feedback fires and [onWallHit] is called
  * so the host can show a visual cue. A double tap calls [onHomeRequested], and
  * a long press on empty space calls [onLongPress] to open the overview map.
+ *
+ * While [editing] is true all page gestures are suspended: the canvas becomes
+ * a plain editing surface where items handle their own drag/tap gestures and
+ * an empty tap calls [onEmptyTap].
  */
 @Composable
 fun SpatialPageCanvas(
@@ -60,6 +65,12 @@ fun SpatialPageCanvas(
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
     },
     modifier: Modifier = Modifier,
+    editing: Boolean = false,
+    selectedItemId: Long? = null,
+    onSelectItem: (GridItemEntity) -> Unit = {},
+    onMoveItem: (GridItemEntity, Int, Int) -> Boolean = { _, _, _ -> false },
+    onItemTouched: () -> Unit = {},
+    onEmptyTap: () -> Unit = {},
 ) {
     val currentPage = remember(pages, currentPageId) {
         pages.firstOrNull { it.pageId == currentPageId }
@@ -72,11 +83,104 @@ fun SpatialPageCanvas(
     val scope = rememberCoroutineScope()
     val view = LocalView.current
 
+    LaunchedEffect(editing) {
+        if (editing && translation.value != Offset.Zero) translation.snapTo(Offset.Zero)
+    }
+
+    val pageGestureModifier = if (editing) {
+        Modifier
+    } else {
+        Modifier
+            .pointerInput(currentPageId, edges, onPageChanged, onWallHit, view) {
+                val thresholdPx = SWIPE_THRESHOLD.toPx()
+                var dragTotal = Offset.Zero
+
+                detectDragGestures(
+                    onDragStart = {
+                        dragTotal = Offset.Zero
+                        scope.launch { translation.stop() }
+                    },
+                    onDragEnd = {
+                        val absX = abs(dragTotal.x)
+                        val absY = abs(dragTotal.y)
+                        val direction: SwipeDirection? = when {
+                            absX >= absY && absX >= thresholdPx ->
+                                if (dragTotal.x > 0f) SwipeDirection.RIGHT else SwipeDirection.LEFT
+
+                            absY > absX && absY >= thresholdPx ->
+                                if (dragTotal.y > 0f) SwipeDirection.DOWN else SwipeDirection.UP
+
+                            else -> null
+                        }
+
+                        if (direction == null) {
+                            scope.launch { translation.animateTo(Offset.Zero, spring()) }
+                        } else {
+                            // Paging semantics: a right swipe reveals the page on
+                            // the left, so look up the mirrored stored direction.
+                            val edgeDirection = direction.edgeForGesture
+                            val edge = edges.firstOrNull {
+                                it.fromPageId == currentPageId &&
+                                    it.swipeDirection == edgeDirection
+                            }
+                            if (edge == null) {
+                                view.performHapticFeedback(wallFeedback())
+                                onWallHit(direction)
+                                scope.launch { translation.animateTo(Offset.Zero, spring()) }
+                            } else {
+                                val exit = exitOffset(
+                                    direction,
+                                    size.width.toFloat(),
+                                    size.height.toFloat(),
+                                )
+                                val entry = entryOffset(
+                                    direction,
+                                    size.width.toFloat(),
+                                    size.height.toFloat(),
+                                )
+                                scope.launch {
+                                    translation.animateTo(
+                                        exit,
+                                        tween(durationMillis = EXIT_DURATION_MS),
+                                    )
+                                    onPageChanged(edge.toPageId)
+                                    translation.snapTo(entry)
+                                    translation.animateTo(
+                                        Offset.Zero,
+                                        tween(durationMillis = ENTER_DURATION_MS),
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    onDragCancel = {
+                        scope.launch { translation.animateTo(Offset.Zero, spring()) }
+                    },
+                ) { _, dragAmount ->
+                    dragTotal += dragAmount
+                    scope.launch { translation.snapTo(dragTotal) }
+                }
+            }
+            .pointerInput(onHomeRequested, onLongPress, view) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        onHomeRequested()
+                    },
+                    onLongPress = {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        onLongPress()
+                    },
+                )
+            }
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
             .clipToBounds()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .then(pageGestureModifier),
     ) {
         // Stationary background: it must not travel with the translating page.
         pageBackground()
@@ -86,77 +190,6 @@ fun SpatialPageCanvas(
                 .graphicsLayer {
                     translationX = translation.value.x
                     translationY = translation.value.y
-                }
-                .pointerInput(currentPageId, edges, onPageChanged, onWallHit, view) {
-                    val thresholdPx = SWIPE_THRESHOLD.toPx()
-                    var dragTotal = Offset.Zero
-
-                    detectDragGestures(
-                        onDragStart = {
-                            dragTotal = Offset.Zero
-                            scope.launch { translation.stop() }
-                        },
-                        onDragEnd = {
-                            val absX = abs(dragTotal.x)
-                            val absY = abs(dragTotal.y)
-                            val direction: SwipeDirection? = when {
-                                absX >= absY && absX >= thresholdPx ->
-                                    if (dragTotal.x > 0f) SwipeDirection.RIGHT else SwipeDirection.LEFT
-
-                                absY > absX && absY >= thresholdPx ->
-                                    if (dragTotal.y > 0f) SwipeDirection.DOWN else SwipeDirection.UP
-
-                                else -> null
-                            }
-
-                            if (direction == null) {
-                                scope.launch { translation.animateTo(Offset.Zero, spring()) }
-                            } else {
-                                // Paging semantics: a right swipe reveals the page on
-                                // the left, so look up the mirrored stored direction.
-                                val edgeDirection = direction.edgeForGesture
-                                val edge = edges.firstOrNull {
-                                    it.fromPageId == currentPageId &&
-                                        it.swipeDirection == edgeDirection
-                                }
-                                if (edge == null) {
-                                    view.performHapticFeedback(wallFeedback())
-                                    onWallHit(direction)
-                                    scope.launch { translation.animateTo(Offset.Zero, spring()) }
-                                } else {
-                                    val exit = exitOffset(direction, size.width.toFloat(), size.height.toFloat())
-                                    val entry = entryOffset(direction, size.width.toFloat(), size.height.toFloat())
-                                    scope.launch {
-                                        translation.animateTo(exit, tween(durationMillis = EXIT_DURATION_MS))
-                                        onPageChanged(edge.toPageId)
-                                        translation.snapTo(entry)
-                                        translation.animateTo(
-                                            Offset.Zero,
-                                            tween(durationMillis = ENTER_DURATION_MS),
-                                        )
-                                    }
-                                }
-                            }
-                        },
-                        onDragCancel = {
-                            scope.launch { translation.animateTo(Offset.Zero, spring()) }
-                        },
-                    ) { _, dragAmount ->
-                        dragTotal += dragAmount
-                        scope.launch { translation.snapTo(dragTotal) }
-                    }
-                }
-                .pointerInput(onHomeRequested, onLongPress, view) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            onHomeRequested()
-                        },
-                        onLongPress = {
-                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                            onLongPress()
-                        },
-                    )
                 },
         ) {
             if (currentPage != null) {
@@ -166,6 +199,12 @@ fun SpatialPageCanvas(
                     items = pageItems,
                     onAppClick = onAppClick,
                     widgetContent = widgetContent,
+                    editing = editing,
+                    selectedItemId = selectedItemId,
+                    onSelectItem = onSelectItem,
+                    onMoveItem = onMoveItem,
+                    onItemTouched = onItemTouched,
+                    onEmptyTap = onEmptyTap,
                 )
             }
         }

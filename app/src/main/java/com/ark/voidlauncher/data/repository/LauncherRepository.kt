@@ -121,6 +121,28 @@ class LauncherRepository(
         database.gridItemDao().update(item.copy(col = col, row = row))
     }
 
+    /** Full placement update used by direct canvas editing, including one-hop page changes. */
+    suspend fun placeItem(
+        itemId: Long,
+        pageId: Long,
+        col: Int,
+        row: Int,
+        colSpan: Int,
+        rowSpan: Int,
+    ) {
+        val item = database.gridItemDao().observeAll().first()
+            .firstOrNull { it.itemId == itemId } ?: return
+        database.gridItemDao().update(
+            item.copy(
+                pageId = pageId,
+                col = col,
+                row = row,
+                colSpan = colSpan,
+                rowSpan = rowSpan,
+            ),
+        )
+    }
+
     suspend fun resizeItem(itemId: Long, colSpan: Int, rowSpan: Int) {
         val item = database.gridItemDao().observeAll().first()
             .firstOrNull { it.itemId == itemId } ?: return

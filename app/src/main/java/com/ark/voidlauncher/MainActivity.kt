@@ -84,6 +84,7 @@ import com.ark.voidlauncher.ui.editor.EdgeChange
 import com.ark.voidlauncher.ui.editor.EditorValidation
 import com.ark.voidlauncher.ui.editor.ItemEditorSheet
 import com.ark.voidlauncher.ui.editor.PageEditorSheet
+import com.ark.voidlauncher.ui.grid.ItemResizeDialog
 import com.ark.voidlauncher.ui.settings.SettingsScreen as SettingsSurface
 import com.ark.voidlauncher.ui.spatial.SpatialPageCanvas
 import com.ark.voidlauncher.ui.theme.GlassPanel
@@ -131,6 +132,9 @@ class MainActivity : ComponentActivity() {
             var currentPageId by remember { mutableLongStateOf(VoidDatabase.ORIGIN_PAGE_ID) }
             var screen by remember { mutableStateOf(Screen.HOME) }
             var editor by remember { mutableStateOf(Editor.NONE) }
+            var canvasEditing by remember { mutableStateOf(false) }
+            var selectedCanvasItemId by remember { mutableStateOf<Long?>(null) }
+            var resizeItemId by remember { mutableStateOf<Long?>(null) }
             var message by remember { mutableStateOf<String?>(null) }
             var overview by remember { mutableStateOf(false) }
             var wallHit by remember { mutableStateOf<SwipeDirection?>(null) }
@@ -350,6 +354,12 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(homePageId) { currentPageId = homePageId }
 
+            LaunchedEffect(currentPageId) {
+                canvasEditing = false
+                selectedCanvasItemId = null
+                resizeItemId = null
+            }
+
             DisposableEffect(widgetController) {
                 widgetController.startListening()
                 onDispose { widgetController.stopListening() }
@@ -364,9 +374,11 @@ class MainActivity : ComponentActivity() {
 
             BackHandler(
                 enabled = themePicker || customThemeEditor || backgroundEditor || overview ||
+                    resizeItemId != null || canvasEditing ||
                     screen != Screen.HOME || editor != Editor.NONE,
             ) {
                 when {
+                    resizeItemId != null -> resizeItemId = null
                     customThemeEditor -> customThemeEditor = false
                     backgroundEditor -> {
                         backgroundEditor = false
@@ -374,8 +386,77 @@ class MainActivity : ComponentActivity() {
                     }
                     themePicker -> themePicker = false
                     overview -> overview = false
+                    canvasEditing -> {
+                        canvasEditing = false
+                        selectedCanvasItemId = null
+                    }
                     editor != Editor.NONE -> editor = Editor.NONE
                     screen != Screen.HOME -> screen = Screen.HOME
+                }
+            }
+
+            fun exitCanvasEditor() {
+                canvasEditing = false
+                selectedCanvasItemId = null
+                resizeItemId = null
+            }
+
+            fun selectCanvasItem(item: GridItemEntity) {
+                canvasEditing = true
+                selectedCanvasItemId = item.itemId
+            }
+
+            fun commitCanvasPlacement(
+                item: GridItemEntity,
+                col: Int,
+                row: Int,
+                colSpan: Int = item.colSpan,
+                rowSpan: Int = item.rowSpan,
+            ): Boolean {
+                val page = pages.firstOrNull { it.pageId == item.pageId }
+                if (page == null) {
+                    message = "ITEM PAGE NOT FOUND"
+                    return false
+                }
+                val candidate = item.copy(
+                    pageId = page.pageId,
+                    col = col,
+                    row = row,
+                    colSpan = colSpan,
+                    rowSpan = rowSpan,
+                )
+                val placed = resolvePlacement(candidate, page, pages, edges, items)
+                if (placed == null) {
+                    message = "MOVE BLOCKED BY GRID RULES"
+                    return false
+                }
+                scope.launch {
+                    repository.placeItem(
+                        itemId = item.itemId,
+                        pageId = placed.first,
+                        col = placed.second.col,
+                        row = placed.second.row,
+                        colSpan = colSpan,
+                        rowSpan = rowSpan,
+                    )
+                    if (placed.first != item.pageId) {
+                        canvasEditing = false
+                        selectedCanvasItemId = null
+                        resizeItemId = null
+                        currentPageId = placed.first
+                    }
+                }
+                return true
+            }
+
+            fun removeCanvasItem(item: GridItemEntity) {
+                scope.launch {
+                    if (item.itemType == GridItemType.WIDGET) {
+                        item.referenceId.toIntOrNull()?.let { widgetController.deleteWidget(it) }
+                    }
+                    repository.removeItem(item.itemId)
+                    selectedCanvasItemId = null
+                    resizeItemId = null
                 }
             }
 
@@ -438,6 +519,15 @@ class MainActivity : ComponentActivity() {
                             wallHit = wallHit,
                             onWallHitCleared = { wallHit = null },
                             onOpenOverview = { overview = true },
+                            canvasEditing = canvasEditing,
+                            selectedCanvasItemId = selectedCanvasItemId,
+                            onSelectCanvasItem = ::selectCanvasItem,
+                            onMoveCanvasItem = { item, col, row ->
+                                commitCanvasPlacement(item, col, row)
+                            },
+                            onResizeCanvasItem = { resizeItemId = it.itemId },
+                            onRemoveCanvasItem = ::removeCanvasItem,
+                            onExitCanvasEditor = ::exitCanvasEditor,
                             pageBackground = {
                                 PageBackgroundRenderer(
                                     background = effectiveBackground,
@@ -621,20 +711,17 @@ class MainActivity : ComponentActivity() {
                                 }
                             },
                             onAddWidget = ::openWidgetPicker,
-                            onMove = { id, col, row -> scope.launch { repository.moveItem(id, col, row) } },
+                            onMove = { id, col, row ->
+                                val item = items.firstOrNull { it.itemId == id }
+                                if (item != null) commitCanvasPlacement(item, col, row)
+                            },
                             onResize = { id, cols, rows ->
-                                scope.launch { repository.resizeItem(id, cols, rows) }
+                                val item = items.firstOrNull { it.itemId == id }
+                                if (item != null) commitCanvasPlacement(item, item.col, item.row, cols, rows)
                             },
                             onRemove = { id ->
-                                scope.launch {
-                                    val item = items.firstOrNull { it.itemId == id }
-                                    if (item?.itemType == GridItemType.WIDGET) {
-                                        item.referenceId.toIntOrNull()?.let {
-                                            widgetController.deleteWidget(it)
-                                        }
-                                    }
-                                    repository.removeItem(id)
-                                }
+                                val item = items.firstOrNull { it.itemId == id }
+                                if (item != null) removeCanvasItem(item)
                             },
                             onDismiss = { editor = Editor.NONE },
                         )
@@ -727,6 +814,30 @@ class MainActivity : ComponentActivity() {
                         },
                         pageId = currentPageId,
                         image = draftImage,
+                    )
+                }
+
+                val resizeItem = items.firstOrNull { it.itemId == resizeItemId }
+                val resizePage = pages.firstOrNull { it.pageId == currentPageId }
+                if (resizeItem != null && resizePage != null && resizeItem.pageId == currentPageId) {
+                    ItemResizeDialog(
+                        initialCols = resizeItem.colSpan,
+                        initialRows = resizeItem.rowSpan,
+                        maxCols = resizePage.gridCols,
+                        maxRows = resizePage.gridRows,
+                        onApply = { cols, rows ->
+                            if (commitCanvasPlacement(
+                                    item = resizeItem,
+                                    col = resizeItem.col,
+                                    row = resizeItem.row,
+                                    colSpan = cols,
+                                    rowSpan = rows,
+                                )
+                            ) {
+                                resizeItemId = null
+                            }
+                        },
+                        onDismiss = { resizeItemId = null },
                     )
                 }
             }
@@ -873,10 +984,19 @@ private fun HomeScreen(
     wallHit: SwipeDirection? = null,
     onWallHitCleared: () -> Unit = {},
     onOpenOverview: () -> Unit = {},
+    canvasEditing: Boolean = false,
+    selectedCanvasItemId: Long? = null,
+    onSelectCanvasItem: (GridItemEntity) -> Unit = {},
+    onMoveCanvasItem: (GridItemEntity, Int, Int) -> Boolean = { _, _, _ -> false },
+    onResizeCanvasItem: (GridItemEntity) -> Unit = {},
+    onRemoveCanvasItem: (GridItemEntity) -> Unit = {},
+    onExitCanvasEditor: () -> Unit = {},
     pageBackground: @Composable () -> Unit = {},
 ) {
     val page = pages.firstOrNull { it.pageId == currentPageId } ?: return
     val pageItems = items.filter { it.pageId == currentPageId }
+    val selectedCanvasItem = items.firstOrNull { it.itemId == selectedCanvasItemId }
+    var lastItemTouch by remember { mutableStateOf(0L) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         SpatialPageCanvas(
@@ -888,8 +1008,16 @@ private fun HomeScreen(
             onPageChanged = onPageChanged,
             onHomeRequested = onHomeRequested,
             onAppClick = onAppClick,
-            onLongPress = onLongPress,
+            onLongPress = {
+                if (System.nanoTime() - lastItemTouch > 300_000_000L) onLongPress()
+            },
             onWallHit = onWallHit,
+            editing = canvasEditing,
+            selectedItemId = selectedCanvasItemId,
+            onSelectItem = onSelectCanvasItem,
+            onMoveItem = onMoveCanvasItem,
+            onItemTouched = { lastItemTouch = System.nanoTime() },
+            onEmptyTap = onExitCanvasEditor,
             widgetContent = { item ->
                 val widgetId = item.referenceId.toIntOrNull()
                 if (widgetId != null) {
@@ -926,11 +1054,63 @@ private fun HomeScreen(
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 Text("APPS", style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.clickable(onClick = onOpenDrawer).padding(8.dp))
+                    modifier = Modifier.clickable(
+                        onClick = if (canvasEditing) onExitCanvasEditor else onOpenDrawer,
+                    ).padding(8.dp))
                 Text("EDIT", style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.clickable(onClick = onEditItems).padding(8.dp))
+                    modifier = Modifier.clickable(
+                        onClick = if (canvasEditing) onExitCanvasEditor else onEditItems,
+                    ).padding(8.dp))
                 Text("SETTINGS", style = MaterialTheme.typography.labelLarge,
-                    modifier = Modifier.clickable(onClick = onOpenSettings).padding(8.dp))
+                    modifier = Modifier.clickable(
+                        onClick = if (canvasEditing) onExitCanvasEditor else onOpenSettings,
+                    ).padding(8.dp))
+            }
+        }
+
+        if (canvasEditing) {
+            GlassPanel(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 96.dp)
+                    .fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp, horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (selectedCanvasItem == null) {
+                            "LONG-PRESS AN ITEM · TAP EMPTY SPACE TO EXIT"
+                        } else {
+                            "DRAG TO MOVE"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (selectedCanvasItem != null) {
+                        Text(
+                            text = "RESIZE",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable { onResizeCanvasItem(selectedCanvasItem) }
+                                .padding(8.dp),
+                        )
+                        Text(
+                            text = "REMOVE",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .clickable { onRemoveCanvasItem(selectedCanvasItem) }
+                                .padding(8.dp),
+                        )
+                    }
+                }
             }
         }
 
