@@ -508,6 +508,8 @@ private fun HomeScreen(
     onOpenDrawer: () -> Unit,
     onOpenSettings: () -> Unit,
     onEditItems: () -> Unit,
+    onLongPress: () -> Unit = {},
+    onWallHit: (com.ark.voidlauncher.domain.SwipeDirection) -> Unit = {},
 ) {
     val page = pages.firstOrNull { it.pageId == currentPageId } ?: return
     val pageItems = items.filter { it.pageId == currentPageId }
@@ -522,6 +524,8 @@ private fun HomeScreen(
             onPageChanged = onPageChanged,
             onHomeRequested = onHomeRequested,
             onAppClick = onAppClick,
+            onLongPress = onLongPress,
+            onWallHit = onWallHit,
             widgetContent = { item ->
                 val widgetId = item.referenceId.toIntOrNull()
                 if (widgetId != null) {

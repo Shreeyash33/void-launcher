@@ -1,5 +1,6 @@
 package com.ark.voidlauncher.ui.spatial
 
+import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
@@ -35,12 +36,13 @@ import kotlin.math.abs
  *
  * Swipes are read directly from pointer input (no nested Pagers). A drag past
  * [SWIPE_THRESHOLD] on its dominant axis looks up a single outgoing edge from
- * the current page. When an edge exists the page animates off-screen and
- * [onPageChanged] is invoked; otherwise the page springs back and the device
- * emits a long-press haptic. A double tap always calls [onHomeRequested].
+ * the current page. When an edge exists the page animates off-screen, the new
+ * page slides in from the opposite side, and [onPageChanged] is invoked. When
+ * there is no edge (a "wall"), haptic feedback fires and [onWallHit] is called
+ * so the host can show a visual cue. A double tap calls [onHomeRequested], and
+ * a long press on empty space calls [onLongPress] to open the overview map.
  */
 @Composable
-@Suppress("UNUSED_PARAMETER")
 fun SpatialPageCanvas(
     pages: List<PageInfo>,
     edges: List<EdgeInfo>,
@@ -50,6 +52,8 @@ fun SpatialPageCanvas(
     onPageChanged: (Long) -> Unit,
     onHomeRequested: () -> Unit,
     onAppClick: (packageName: String) -> Unit,
+    onLongPress: () -> Unit,
+    onWallHit: (SwipeDirection) -> Unit,
     widgetContent: @Composable (GridItemEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -77,7 +81,7 @@ fun SpatialPageCanvas(
                     translationX = translation.value.x
                     translationY = translation.value.y
                 }
-                .pointerInput(currentPageId, edges, onPageChanged, view) {
+                .pointerInput(currentPageId, edges, onPageChanged, onWallHit, view) {
                     val thresholdPx = SWIPE_THRESHOLD.toPx()
                     var dragTotal = Offset.Zero
 
@@ -106,19 +110,20 @@ fun SpatialPageCanvas(
                                     it.fromPageId == currentPageId && it.swipeDirection == direction
                                 }
                                 if (edge == null) {
-                                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                    view.performHapticFeedback(wallFeedback())
+                                    onWallHit(direction)
                                     scope.launch { translation.animateTo(Offset.Zero, spring()) }
                                 } else {
-                                    val exit = when (direction) {
-                                        SwipeDirection.RIGHT -> Offset(size.width.toFloat(), 0f)
-                                        SwipeDirection.LEFT -> Offset(-size.width.toFloat(), 0f)
-                                        SwipeDirection.DOWN -> Offset(0f, size.height.toFloat())
-                                        SwipeDirection.UP -> Offset(0f, -size.height.toFloat())
-                                    }
+                                    val exit = exitOffset(direction, size.width.toFloat(), size.height.toFloat())
+                                    val entry = entryOffset(direction, size.width.toFloat(), size.height.toFloat())
                                     scope.launch {
                                         translation.animateTo(exit, tween(durationMillis = EXIT_DURATION_MS))
                                         onPageChanged(edge.toPageId)
-                                        translation.snapTo(Offset.Zero)
+                                        translation.snapTo(entry)
+                                        translation.animateTo(
+                                            Offset.Zero,
+                                            tween(durationMillis = ENTER_DURATION_MS),
+                                        )
                                     }
                                 }
                             }
@@ -128,15 +133,20 @@ fun SpatialPageCanvas(
                         },
                     ) { _, dragAmount ->
                         dragTotal += dragAmount
-                        val newTranslation = dragTotal
-                        scope.launch { translation.snapTo(newTranslation) }
+                        scope.launch { translation.snapTo(dragTotal) }
                     }
                 }
-                .pointerInput(onHomeRequested, view) {
-                    detectTapGestures(onDoubleTap = {
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        onHomeRequested()
-                    })
+                .pointerInput(onHomeRequested, onLongPress, view) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                            onHomeRequested()
+                        },
+                        onLongPress = {
+                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                            onLongPress()
+                        },
+                    )
                 },
         ) {
             if (currentPage != null) {
@@ -152,5 +162,30 @@ fun SpatialPageCanvas(
     }
 }
 
+private fun exitOffset(direction: SwipeDirection, width: Float, height: Float): Offset =
+    when (direction) {
+        SwipeDirection.RIGHT -> Offset(width, 0f)
+        SwipeDirection.LEFT -> Offset(-width, 0f)
+        SwipeDirection.DOWN -> Offset(0f, height)
+        SwipeDirection.UP -> Offset(0f, -height)
+    }
+
+/** New page enters from the side opposite the swipe direction. */
+private fun entryOffset(direction: SwipeDirection, width: Float, height: Float): Offset =
+    when (direction) {
+        SwipeDirection.RIGHT -> Offset(-width, 0f)
+        SwipeDirection.LEFT -> Offset(width, 0f)
+        SwipeDirection.DOWN -> Offset(0f, -height)
+        SwipeDirection.UP -> Offset(0f, height)
+    }
+
+private fun wallFeedback(): Int =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        HapticFeedbackConstants.REJECT
+    } else {
+        HapticFeedbackConstants.LONG_PRESS
+    }
+
 private val SWIPE_THRESHOLD: Dp = 80.dp
-private const val EXIT_DURATION_MS = 220
+private const val EXIT_DURATION_MS = 200
+private const val ENTER_DURATION_MS = 220
