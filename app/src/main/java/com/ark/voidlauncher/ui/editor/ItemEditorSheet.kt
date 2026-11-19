@@ -1,7 +1,10 @@
 package com.ark.voidlauncher.ui.editor
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items as lazyItems
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +50,10 @@ fun ItemEditorSheet(
     }
 
     EditorSheetScaffold(title = "Items - ${page.title}", onDismiss = onDismiss) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         item { EditorSectionHeader("Widget") }
         item {
             EditorHint("WIDGET PLACEMENT IS REQUESTED FROM THE SYSTEM PICKER")
@@ -107,6 +114,7 @@ fun ItemEditorSheet(
                 onResize = onResize,
                 onRemove = onRemove,
             )
+        }
         }
     }
 }
