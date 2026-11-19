@@ -122,7 +122,7 @@ fun PageOverview(
         ) {
             Box(
                 modifier = Modifier
-                    .size(mapCols * OverviewStride, mapRows * OverviewStride)
+                    .size(OverviewStride * mapCols, OverviewStride * mapRows)
                     .graphicsLayer {
                         transformOrigin = TransformOrigin(0f, 0f)
                         scaleX = scale
