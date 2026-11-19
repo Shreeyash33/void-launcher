@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -144,7 +145,9 @@ internal fun PageCell(
 internal fun RowScope.NavButton(label: String, onClick: () -> Unit) {
     TextButton(
         onClick = onClick,
-        modifier = Modifier.weight(1f),
+        modifier = Modifier
+            .weight(1f)
+            .fillMaxHeight(),
     ) {
         Text(
             text = label,
