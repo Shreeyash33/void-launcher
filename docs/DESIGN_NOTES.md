@@ -7,6 +7,7 @@
 
 ## 1. Hard constraints (do not violate)
 
+- **Sudden restarts are expected on this laptop (user warning, 2026-11-19).** Treat every file write as potentially the last before a hard reboot. Commit small, frequent checkpoints; never leave a large batch of work uncommitted. All agents must commit as soon as a coherent file set is written, not only at the end of a phase. Keep notes in this file updated at each checkpoint. Prefer `write` (atomic replace) over long sequences of fragile edits when a restart could land mid-edit.
 - **Do not upgrade the toolchain.** Another OpenCode session shares it for a different app.
 - Pinned stack:
   - JDK 17
@@ -123,6 +124,12 @@ A green Gradle build is necessary but not sufficient; swipe feel, widget resizin
 
 ---
 
+## 5a. Queued work — do not forget
+
+- **Theme foundation before homepage UI (user requirement, 2026-11-19):** When the homepage UI is assembled, dark and light themes must be in place **first**, with a deliberate slot reserved for a future custom theme editor. `ui/theme/Theme.kt` already has `SYSTEM` / `DARK` / `LIGHT` and two color schemes; before integrating the P2 canvas the lead must audit it so every homepage surface uses `MaterialTheme.colorScheme` / `MaterialTheme.typography` tokens (no hardcoded colors), and add an extension point for user-defined color palettes. The custom **editor** itself is deferred — do not build it in P1-P3. Homepage components built by subagents must consume theme tokens only.
+
+---
+
 ## 6. Resolved and remaining questions
 
 **Resolved 2026-11-19:**
@@ -167,6 +174,7 @@ Each phase is independently reviewable. Ask for one or two at a time.
 | P0 ✅ | Foundation | KSP 1.9.24-1.0.20 + Room 2.6.1 build green; entities, DAOs, validators, DataStore migration; unit tests for degree/path rules | — |
 | P1 | Widget host | One real AppWidget renders via `AppWidgetHost`; bind/configure/delete handled; lifecycle start/stop | P0 |
 | P2 | Spatial canvas + grid | 4-way swipe pager, 10x20 grid, non-overlapping app shortcuts; bounce + haptic on no edge | P0 |
+| P2a | Theme foundation | Dark/light/system tokens audited; all homepage surfaces use MaterialTheme tokens; `CustomPalette` extension point reserved (editor itself deferred) | P0 |
 | P3 | Editor | Wire/remove edges, set home coordinate, place/resize items, edit nickname/typography; validation prevents stranded pages | P0, P2 |
 | P4 | Drawer + settings | Text drawer with search and pin; theme switch; home/settings navigation | P0 |
 | P5 | Backup/restore | Versioned JSON export/import via SAF, including widget placeholders | P0, P3 |
@@ -186,4 +194,7 @@ Parallelism: after P0, **P1, P2, and P4 can run together**. Then **P3, P5, and P
   - Status: **in progress**.
   - 2026-11-19: Validator agent completed. Reviewed `PageGraphValidator.kt` and its JUnit tests — reverse-BFS reachability, degree check, deterministic sorted output, 9 test cases including cycles and missing home. Looks correct.
   - 2026-11-19: Data agent completed. Reviewed and corrected contract mismatches: added missing customization fields (`isHidden`, `fontSizeSp`, `letterSpacingSp`, `textColorHex`, `customNickname`), replaced grid unique-cell index with overlap-friendly schema (`col/row/colSpan/rowSpan/referenceId/themeId/allowOverlap`), wired migration to the existing DataStore instance, added index on `page_edges.toPageId`.
-  - **P0 COMPLETE:** `assembleDebug` + `testDebugUnitTest` both pass. 9/9 validator tests green, 0 failures/errors. APK at `app\build\outputs\apk\debug\app-debug.apk`. Changes are **uncommitted**.
+  - **P0 COMPLETE:** `assembleDebug` + `testDebugUnitTest` both pass. 9/9 validator tests green, 0 failures/errors. APK at `app\build\outputs\apk\debug\app-debug.apk`.
+  - **2026-11-19 (P0 committed/pushed):** `77a2f17` P0 foundation; `fb46374` fixed P1/P2/P3 contracts. Remote `origin/main` is in sync.
+  - **2026-11-19 (P1/P2/P3 started):** Three worktrees created from `fb46374` on branches `p1-widgets`, `p2-canvas`, `p3-editor` (`D:\projects\void-launcher-p1|p2|p3`). Sessions: P1 `ses_e0d9977faffdYn3CwwFv9KBmQK`, P2 `ses_e0d9977f9ffeMV4CZJb4QQ3yZ0`, P3 `ses_e0d9977f5ffe3xTz16xy50wLh1`. Lead is doing P2a theme foundation in main while agents work. Status: **in progress**.
+  - **2026-11-19 (P2a):** User required themes first for homepage UI. `ui/theme/Theme.kt` now has explicit dark/light schemes, `VoidTypography` text-first tokens, and `CustomPalette` + optional `customPalette` param as the future custom-theme hook. No theme editor built. Added queued-work note and P2a phase row. Status: **in progress** (uncommitted).
