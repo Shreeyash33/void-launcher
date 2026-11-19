@@ -2,6 +2,7 @@ package com.ark.voidlauncher.ui.hud
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,6 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.domain.EdgeInfo
@@ -181,12 +187,6 @@ private fun DirectionIndicator(
     page: PageInfo,
     modifier: Modifier = Modifier,
 ) {
-    val arrow = when (direction) {
-        SwipeDirection.UP -> "↑"
-        SwipeDirection.DOWN -> "↓"
-        SwipeDirection.LEFT -> "←"
-        SwipeDirection.RIGHT -> "→"
-    }
     val available = edge != null
     val arrowColor = if (available) {
         MaterialTheme.colorScheme.primary
@@ -199,16 +199,62 @@ private fun DirectionIndicator(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            text = arrow,
-            style = MaterialTheme.typography.headlineSmall,
-            color = arrowColor,
-        )
+        DirectionArrow(direction = direction, color = arrowColor)
         if (neighbour != null) {
             Text(
                 text = neighbour,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = LABEL_ALPHA),
+            )
+        }
+    }
+}
+
+/**
+ * Direction cue drawn as geometry rather than a font glyph. The monospace face
+ * used by the launcher does not contain the Unicode arrows, so they rendered as
+ * unrelated characters on some devices. A Canvas arrow is font-independent and
+ * keeps the same silhouette everywhere.
+ */
+@Composable
+private fun DirectionArrow(direction: SwipeDirection, color: Color) {
+    val rotation = when (direction) {
+        SwipeDirection.UP -> 0f
+        SwipeDirection.RIGHT -> 90f
+        SwipeDirection.DOWN -> 180f
+        SwipeDirection.LEFT -> 270f
+    }
+    Canvas(
+        modifier = Modifier.size(28.dp),
+        contentDescription = "SWIPE ${direction.name}",
+    ) {
+        val stroke = 2.5.dp.toPx()
+        val centerX = size.width / 2f
+        val tipY = size.height * 0.12f
+        val tailY = size.height * 0.88f
+        val headWidth = size.width * 0.30f
+        val headDepth = size.height * 0.22f
+        rotate(rotation) {
+            drawLine(
+                color = color,
+                start = Offset(centerX, tailY),
+                end = Offset(centerX, tipY),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = color,
+                start = Offset(centerX - headWidth, tipY + headDepth),
+                end = Offset(centerX, tipY),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = color,
+                start = Offset(centerX + headWidth, tipY + headDepth),
+                end = Offset(centerX, tipY),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
             )
         }
     }

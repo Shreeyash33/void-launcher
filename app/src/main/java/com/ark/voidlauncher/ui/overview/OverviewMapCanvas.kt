@@ -39,13 +39,6 @@ internal const val OverviewMaxScale: Float = 2.5f
 /** Empty slots kept around the used coordinate range so border pages are not cramped. */
 internal const val OverviewMarginCells: Int = 2
 
-internal fun SwipeDirection.overviewGlyph(): String = when (this) {
-    SwipeDirection.UP -> "↑"
-    SwipeDirection.DOWN -> "↓"
-    SwipeDirection.LEFT -> "←"
-    SwipeDirection.RIGHT -> "→"
-}
-
 /** Number of placed items per page, used for the "N items" cell caption. */
 internal fun overviewItemCounts(items: List<GridItemEntity>): Map<Long, Int> =
     items.groupingBy { it.pageId }.eachCount()

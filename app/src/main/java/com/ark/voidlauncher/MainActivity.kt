@@ -466,7 +466,18 @@ class MainActivity : ComponentActivity() {
                                 if (enabled) AccessibilityBridge.openSettings(context)
                             },
                             orientationMode = orientationMode,
-                            onOrientationChange = { scope.launch { prefs.setOrientation(it) } },
+                            onOrientationChange = { mode ->
+                                // Apply immediately on the live activity. Relying only on the
+                                // DataStore flow means the value can arrive during the
+                                // configuration change that rotation itself triggers, and the
+                                // assignment is then ignored on the outgoing instance.
+                                requestedOrientation = when (mode) {
+                                    OrientationMode.PORTRAIT -> ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                                    OrientationMode.LANDSCAPE -> ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                                    OrientationMode.AUTO -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                                }
+                                scope.launch { prefs.setOrientation(mode) }
+                            },
                             onEditCustomTheme = { customThemeEditor = true },
                             onEditBackgrounds = {
                                 backgroundDraft = effectiveBackground

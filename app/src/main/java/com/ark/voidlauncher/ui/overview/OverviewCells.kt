@@ -1,5 +1,6 @@
 package com.ark.voidlauncher.ui.overview
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -22,6 +23,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -30,7 +34,7 @@ import kotlin.math.roundToInt
 
 /**
  * One page as seen from above: coordinate, optional HOME/HERE tags, item count and
- * the four swipe glyphs (bright when an outgoing edge exists, dim when it is a
+ * the four swipe arrows (bright when an outgoing edge exists, dim when it is a
  * wall). [center] is the cell centre in map-space pixels; the enclosing map layer
  * applies the shared pan/zoom transform, so this cell only positions itself.
  */
@@ -124,9 +128,8 @@ internal fun PageCell(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SwipeDirection.entries.forEach { direction ->
                     val available = direction in outgoing
-                    Text(
-                        text = direction.overviewGlyph(),
-                        style = MaterialTheme.typography.labelMedium,
+                    OverviewArrow(
+                        direction = direction,
                         color = if (available) {
                             markerColor
                         } else {
@@ -135,6 +138,49 @@ internal fun PageCell(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Small direction cue drawn as geometry. Unicode arrows render as unrelated
+ * characters on devices whose monospace face lacks them, so the map uses the
+ * same font-independent approach as the home HUD.
+ */
+@Composable
+private fun OverviewArrow(direction: SwipeDirection, color: Color) {
+    val rotation = when (direction) {
+        SwipeDirection.UP -> 0f
+        SwipeDirection.RIGHT -> 90f
+        SwipeDirection.DOWN -> 180f
+        SwipeDirection.LEFT -> 270f
+    }
+    Canvas(
+        modifier = Modifier.size(14.dp),
+        contentDescription = "SWIPE ${direction.name}",
+    ) {
+        val stroke = 1.5.dp.toPx()
+        val centerX = size.width / 2f
+        val tipY = size.height * 0.10f
+        val tailY = size.height * 0.90f
+        val headWidth = size.width * 0.32f
+        val headDepth = size.height * 0.30f
+        rotate(rotation) {
+            drawLine(color, Offset(centerX, tailY), Offset(centerX, tipY), stroke, StrokeCap.Round)
+            drawLine(
+                color,
+                Offset(centerX - headWidth, tipY + headDepth),
+                Offset(centerX, tipY),
+                stroke,
+                StrokeCap.Round,
+            )
+            drawLine(
+                color,
+                Offset(centerX + headWidth, tipY + headDepth),
+                Offset(centerX, tipY),
+                stroke,
+                StrokeCap.Round,
+            )
         }
     }
 }
