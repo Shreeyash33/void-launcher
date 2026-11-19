@@ -26,6 +26,12 @@
                 <category android:name="android.intent.category.HOME" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- Needed so the app appears in the drawer and Settings shows "Open".
+                 Without LAUNCHER, a HOME-only main activity installs but is invisible. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
         </activity>
 
         <!-- P1: removes stale grid items when a widget instance is deleted. -->
