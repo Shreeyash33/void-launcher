@@ -152,6 +152,9 @@ internal fun RowScope.NavButton(label: String, onClick: () -> Unit) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,
+            // `background()` does not provide a content colour, so inherit from the
+            // theme explicitly or the label renders black on a dark surface.
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Clip,
         )
