@@ -91,4 +91,52 @@ class PagePlacementTest {
     fun `isolated page has no spawn neighbour`() {
         assert(spawnNeighbour(listOf(page(0, 0, 1)), page(5, 5, 2)) == null)
     }
+
+    @Test
+    fun `primary neighbour follows left right up down priority`() {
+        val left = page(4, 5, 2)
+        val right = page(6, 5, 3)
+        val up = page(5, 4, 4)
+        val down = page(5, 6, 5)
+
+        assertEquals(SwipeDirection.LEFT, primaryNeighbour(listOf(left, right, up, down), 5, 5)!!.second)
+        assertEquals(SwipeDirection.RIGHT, primaryNeighbour(listOf(right, up, down), 5, 5)!!.second)
+        assertEquals(SwipeDirection.UP, primaryNeighbour(listOf(up, down), 5, 5)!!.second)
+        assertEquals(SwipeDirection.DOWN, primaryNeighbour(listOf(down), 5, 5)!!.second)
+        assertEquals(down.pageId, primaryNeighbour(listOf(down), 5, 5)!!.first.pageId)
+        assert(primaryNeighbour(emptyList(), 5, 5) == null)
+    }
+
+    @Test
+    fun `stored direction deltas match neighbour coordinates`() {
+        assertEquals(4 to 5, neighbourCoord(5, 5, SwipeDirection.LEFT))
+        assertEquals(6 to 5, neighbourCoord(5, 5, SwipeDirection.RIGHT))
+        assertEquals(5 to 4, neighbourCoord(5, 5, SwipeDirection.UP))
+        assertEquals(5 to 6, neighbourCoord(5, 5, SwipeDirection.DOWN))
+    }
+
+    @Test
+    fun `destination rejects bounds collisions and isolated cells`() {
+        val anchor = page(0, 0, 1)
+        val occupant = page(1, 0, 2)
+
+        assert(isValidPageDestination(listOf(anchor), 1, 0))
+        assert(!isValidPageDestination(listOf(anchor, occupant), 1, 0))
+        assert(!isValidPageDestination(listOf(anchor), 11, 0))
+        assert(!isValidPageDestination(listOf(anchor), 0, -11))
+        assert(!isValidPageDestination(listOf(anchor), 5, 5))
+
+        // A moving page is ignored both for occupancy and as a neighbour: its old
+        // coordinate must not make the new destination look connected.
+        assert(isValidPageDestination(listOf(anchor, occupant), 1, 0, movingPageId = 2))
+        assert(!isValidPageDestination(listOf(anchor, page(5, 5, 2)), 1, 0, movingPageId = 1))
+    }
+
+    @Test
+    fun `effective page type keeps drawer authoritative and home coordinate derived`() {
+        assertEquals(PageType.APP_DRAWER, effectivePageType(PageType.APP_DRAWER, 0, 0, 0, 0))
+        assertEquals(PageType.HOME, effectivePageType(PageType.WIDGET, 0, 0, 0, 0))
+        assertEquals(PageType.WIDGET, effectivePageType(PageType.HOME, 2, 3, 0, 0))
+        assertEquals(PageType.WIDGET, effectivePageType(PageType.WIDGET, 2, 3, 0, 0))
+    }
 }

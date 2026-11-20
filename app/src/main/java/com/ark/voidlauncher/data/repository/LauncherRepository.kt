@@ -18,6 +18,9 @@ import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
+import com.ark.voidlauncher.domain.effectivePageType
+import com.ark.voidlauncher.domain.isValidPageDestination
+import com.ark.voidlauncher.domain.primaryNeighbour
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -39,11 +42,9 @@ class LauncherRepository(
         prefs.homeCoord,
     ) { rows, (homeX, homeY) ->
         rows.map { row ->
-            val effective = when {
-                row.pageType == PageType.APP_DRAWER -> PageType.APP_DRAWER
-                row.coordX == homeX && row.coordY == homeY -> PageType.HOME
-                else -> PageType.WIDGET
-            }
+            val effective = effectivePageType(
+                row.pageType, row.coordX, row.coordY, homeX, homeY,
+            )
             row.toPageInfo().copy(pageType = effective)
         }
     }
@@ -68,13 +69,82 @@ class LauncherRepository(
             ?: VoidDatabase.ORIGIN_PAGE_ID
     }
 
-    suspend fun addPage(x: Int, y: Int): Long? {
+    /**
+     * Creates a page with an explicit stored role and links it to the first existing
+     * orthogonal neighbour by priority (LEFT, RIGHT, UP, DOWN). The link and the page
+     * are written together so a new page is never left isolated by a partial insert.
+     */
+    suspend fun addPage(
+        x: Int,
+        y: Int,
+        pageType: PageType = PageType.WIDGET,
+    ): Long? {
         if (x !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) return null
         if (y !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) return null
         if (database.pageDao().getByCoordOnce(x, y) != null) return null
-        return database.pageDao().insert(
-            PageEntity(coordX = x, coordY = y, title = "Page $x,$y"),
-        )
+        return database.withTransaction {
+            val id = database.pageDao().insert(
+                PageEntity(
+                    coordX = x,
+                    coordY = y,
+                    title = "Page $x,$y",
+                    pageType = pageType,
+                ),
+            )
+            val pages = database.pageDao().observeAll().first().map { it.toPageInfo() }
+            primaryNeighbour(pages, x, y)?.let { (neighbour, direction) ->
+                database.pageEdgeDao().insert(
+                    PageEdgeEntity(id, direction, neighbour.pageId),
+                )
+            }
+            id
+        }
+    }
+
+    /**
+     * Relocates a page while preserving its role. All old edges (incoming and
+     * outgoing) are dropped and exactly one default outgoing edge is derived at the
+     * destination; the effective HOME follows the moved page if it was home.
+     */
+    suspend fun movePage(pageId: Long, x: Int, y: Int): Boolean = database.withTransaction {
+        val page = database.pageDao().getByIdOnce(pageId) ?: return@withTransaction false
+        val rows = database.pageDao().observeAll().first().map { it.toPageInfo() }
+        if (!isValidPageDestination(rows, x, y, pageId)) return@withTransaction false
+
+        val (homeX, homeY) = prefs.homeCoord.first()
+        val wasHome = page.coordX == homeX && page.coordY == homeY
+        database.pageEdgeDao().deleteInvolving(pageId)
+        database.pageDao().update(page.copy(coordX = x, coordY = y))
+        if (wasHome) prefs.setHomeCoord(x, y)
+
+        val others = rows.filterNot { it.pageId == pageId }
+        primaryNeighbour(others, x, y)?.let { (neighbour, direction) ->
+            database.pageEdgeDao().insert(
+                PageEdgeEntity(pageId, direction, neighbour.pageId),
+            )
+        }
+        true
+    }
+
+    /**
+     * Promotes a widget page to HOME. The previous HOME is found through the stored
+     * home coordinate (roles are derived, not authoritative) and demoted to WIDGET.
+     * Drawer pages can never become HOME.
+     */
+    suspend fun setHomePage(pageId: Long): Boolean = database.withTransaction {
+        val target = database.pageDao().getByIdOnce(pageId) ?: return@withTransaction false
+        if (target.pageType == PageType.APP_DRAWER) return@withTransaction false
+
+        val (homeX, homeY) = prefs.homeCoord.first()
+        val previous = database.pageDao().getByCoordOnce(homeX, homeY)
+        if (previous != null && previous.pageId != target.pageId &&
+            previous.pageType != PageType.APP_DRAWER
+        ) {
+            database.pageDao().update(previous.copy(pageType = PageType.WIDGET))
+        }
+        database.pageDao().update(target.copy(pageType = PageType.HOME))
+        prefs.setHomeCoord(target.coordX, target.coordY)
+        true
     }
 
     suspend fun deletePage(pageId: Long) {

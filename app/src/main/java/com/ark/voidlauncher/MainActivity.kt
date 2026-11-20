@@ -876,9 +876,9 @@ class MainActivity : ComponentActivity() {
                                 overview = false
                                 editor = Editor.PAGES
                             },
-                            onAddPage = { x, y ->
+                            onAddPage = { x, y, pageType ->
                                 scope.launch {
-                                    val id = repository.addPage(x, y)
+                                    val id = repository.addPage(x, y, pageType)
                                     // Adding a page keeps the map open so several pages can
                                     // be laid out in one pass. HERE only changes when the
                                     // user explicitly selects a page.
@@ -887,11 +887,25 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
-                            onToggleEdge = { childId, parentId, direction, enable ->
+                            onMovePage = { pageId, x, y ->
+                                scope.launch {
+                                    if (!repository.movePage(pageId, x, y)) {
+                                        message = "INVALID PAGE LOCATION"
+                                    }
+                                }
+                            },
+                            onSetHomePage = { pageId ->
+                                scope.launch {
+                                    if (!repository.setHomePage(pageId)) {
+                                        message = "HOME CANNOT BE SET HERE"
+                                    }
+                                }
+                            },
+                            onToggleEdge = { pageId, direction, toPageId, enable ->
                                 val change = if (enable) {
-                                    EdgeChange.SetEdge(EdgeInfo(childId, direction, parentId))
+                                    EdgeChange.SetEdge(EdgeInfo(pageId, direction, toPageId))
                                 } else {
-                                    EdgeChange.RemoveEdge(childId, direction)
+                                    EdgeChange.RemoveEdge(pageId, direction)
                                 }
                                 if (!EditorValidation.edgeChangeStrandsAdditionalPages(
                                         pages, edges, homePageId, change,
@@ -899,9 +913,9 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     scope.launch {
                                         if (enable) {
-                                            repository.setEdge(childId, direction, parentId)
+                                            repository.setEdge(pageId, direction, toPageId)
                                         } else {
-                                            repository.removeEdge(childId, direction)
+                                            repository.removeEdge(pageId, direction)
                                         }
                                     }
                                 } else {
@@ -987,9 +1001,10 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onSetHomePage = { id ->
-                            val page = pages.firstOrNull { it.pageId == id }
-                            if (page != null) {
-                                scope.launch { repository.setHomeCoord(page.coordX, page.coordY) }
+                            scope.launch {
+                                if (!repository.setHomePage(id)) {
+                                    message = "HOME CANNOT BE SET HERE"
+                                }
                             }
                         },
                         onDismiss = { editor = Editor.NONE },

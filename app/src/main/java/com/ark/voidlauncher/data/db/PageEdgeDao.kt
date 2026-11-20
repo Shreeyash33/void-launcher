@@ -23,6 +23,9 @@ interface PageEdgeDao {
     @Query("SELECT * FROM page_edges ORDER BY fromPageId ASC, swipeDirection ASC")
     fun observeAll(): Flow<List<PageEdgeEntity>>
 
+    @Query("SELECT * FROM page_edges ORDER BY fromPageId ASC, swipeDirection ASC")
+    suspend fun getAllOnce(): List<PageEdgeEntity>
+
     @Query("SELECT * FROM page_edges WHERE fromPageId = :fromPageId ORDER BY swipeDirection ASC")
     fun observeOutgoing(fromPageId: Long): Flow<List<PageEdgeEntity>>
 
@@ -37,4 +40,7 @@ interface PageEdgeDao {
 
     @Query("DELETE FROM page_edges WHERE fromPageId = :fromPageId")
     suspend fun deleteOutgoing(fromPageId: Long)
+
+    @Query("DELETE FROM page_edges WHERE fromPageId = :pageId OR toPageId = :pageId")
+    suspend fun deleteInvolving(pageId: Long)
 }

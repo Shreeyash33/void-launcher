@@ -4,6 +4,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,12 +21,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -38,10 +42,13 @@ import com.ark.voidlauncher.domain.SwipeDirection
 import kotlin.math.roundToInt
 
 /**
- * One page as seen from above: coordinate, optional HOME/HERE tags, item count and
- * the four swipe arrows (bright when an outgoing edge exists, dim when it is a
- * wall). [center] is the cell centre in map-space pixels; the enclosing map layer
- * applies the shared pan/zoom transform, so this cell only positions itself.
+ * One page as seen from above: coordinate, optional HOME/HERE tags and item count.
+ * A tap selects the page; a long press selects it for dragging and a following drag
+ * reports map-space deltas. The four navigation arrows live outside the tile in
+ * [DirectionToggle] so they never trigger a tap or a drag.
+ *
+ * [center] is the cell centre in map-space pixels; the enclosing map layer applies
+ * the shared pan/zoom transform, so this cell only positions itself.
  */
 @Composable
 internal fun PageCell(
@@ -54,28 +61,39 @@ internal fun PageCell(
     showCoordDetail: Boolean = true,
     itemCount: Int,
     outgoing: Set<SwipeDirection>,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
+    onLongPress: () -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
 ) {
+    val currentClick = rememberUpdatedState(onClick)
+    val currentLongPress = rememberUpdatedState(onLongPress)
+    val currentDragStart = rememberUpdatedState(onDragStart)
+    val currentDrag = rememberUpdatedState(onDrag)
+    val currentDragEnd = rememberUpdatedState(onDragEnd)
+
     val shape = RoundedCornerShape(8.dp)
-    val containerColor = if (isCurrent) {
-        MaterialTheme.colorScheme.primaryContainer
-    } else {
-        MaterialTheme.colorScheme.surface
+    val containerColor = when {
+        isCurrent -> MaterialTheme.colorScheme.primaryContainer
+        isSelected -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.surface
     }
-    val contentColor = if (isCurrent) {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    } else {
-        MaterialTheme.colorScheme.onSurface
+    val contentColor = when {
+        isCurrent -> MaterialTheme.colorScheme.onPrimaryContainer
+        isSelected -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurface
     }
-    val markerColor = if (isCurrent) {
-        MaterialTheme.colorScheme.onPrimaryContainer
+    val markerColor = if (isCurrent || isSelected) {
+        contentColor
     } else {
         MaterialTheme.colorScheme.primary
     }
-    val borderColor = if (isCurrent) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+    val borderColor = when {
+        isSelected -> MaterialTheme.colorScheme.tertiary
+        isCurrent -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
     }
 
     Box(
@@ -90,11 +108,27 @@ internal fun PageCell(
             .clip(shape)
             .background(containerColor)
             .border(
-                width = if (isCurrent) 2.dp else 1.dp,
+                width = if (isCurrent || isSelected) 2.dp else 1.dp,
                 color = borderColor,
                 shape = shape,
             )
-            .clickable(onClick = onClick)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { currentClick.value() },
+                    onLongPress = { currentLongPress.value() },
+                )
+            }
+            .pointerInput(Unit) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { currentDragStart.value() },
+                    onDrag = { change, amount ->
+                        change.consume()
+                        currentDrag.value(amount)
+                    },
+                    onDragEnd = { currentDragEnd.value() },
+                    onDragCancel = { currentDragEnd.value() },
+                )
+            }
             .padding(6.dp),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -123,6 +157,13 @@ internal fun PageCell(
                         color = markerColor,
                     )
                 }
+                if (isSelected && !isCurrent) {
+                    Text(
+                        text = "HOLD",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = markerColor,
+                    )
+                }
             }
             Text(
                 text = "$itemCount items",
@@ -136,10 +177,9 @@ internal fun PageCell(
 
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 SwipeDirection.entries.forEach { direction ->
-                    val available = direction in outgoing
                     OverviewArrow(
                         direction = direction,
-                        color = if (available) {
+                        color = if (direction in outgoing) {
                             markerColor
                         } else {
                             contentColor.copy(alpha = 0.25f)
@@ -200,44 +240,101 @@ internal fun PlacementPreviewCell(
 }
 
 /**
- * Faint arrow that toggles the navigation link from this page to the neighbour it
- * was spawned from. Bright means the edge exists; dim means the page is isolated.
- * It sits above the page tiles in the map layer so its own click does not also
- * select the page.
+ * One of the four outgoing edge controls for a page. [available] is true only when
+ * a page actually sits at that orthogonal coordinate: unavailable arrows are dim
+ * and have no click handler at all. Bright means the edge exists, dim means the
+ * slot is free to be toggled on. The control sits above the page tiles in the map
+ * layer so its click never selects or drags the page.
  */
 @Composable
-internal fun SpawnLinkToggle(
+internal fun DirectionToggle(
     center: Offset,
     cellWidthPx: Float,
     cellHeightPx: Float,
     direction: SwipeDirection,
+    available: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val size = 18.dp
+    // Two neighbouring tiles contribute one arrow each to the same 28dp gap, so
+    // 14dp controls placed flush against their own tile edge never overlap.
+    val size = 14.dp
     val sizePx = with(LocalDensity.current) { size.toPx() }
-    val inset = with(LocalDensity.current) { 2.dp.toPx() }
-    val x = (center.x + cellWidthPx / 2f - sizePx - inset).roundToInt()
-    val y = (center.y - cellHeightPx / 2f + inset).roundToInt()
-    val arrowColor = if (enabled) {
+    val inset = 0f
+    val (x, y) = when (direction) {
+        SwipeDirection.LEFT ->
+            (center.x - cellWidthPx / 2f - sizePx - inset).roundToInt() to
+                (center.y - sizePx / 2f).roundToInt()
+        SwipeDirection.RIGHT ->
+            (center.x + cellWidthPx / 2f + inset).roundToInt() to
+                (center.y - sizePx / 2f).roundToInt()
+        SwipeDirection.UP ->
+            (center.x - sizePx / 2f).roundToInt() to
+                (center.y - cellHeightPx / 2f - sizePx - inset).roundToInt()
+        SwipeDirection.DOWN ->
+            (center.x - sizePx / 2f).roundToInt() to
+                (center.y + cellHeightPx / 2f + inset).roundToInt()
+    }
+    val arrowColor = when {
+        !available -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f)
+        enabled -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+    }
+    var controlModifier = Modifier
+        .offset { IntOffset(x, y) }
+        .size(size)
+        .clip(RoundedCornerShape(9.dp))
+        .background(
+            MaterialTheme.colorScheme.surface.copy(
+                alpha = if (available && enabled) 0.95f else 0.6f,
+            ),
+        )
+    if (available) controlModifier = controlModifier.clickable(onClick = onClick)
+    Box(modifier = controlModifier, contentAlignment = Alignment.Center) {
+        OverviewArrow(direction = direction, color = arrowColor, diameter = 10.dp)
+    }
+}
+
+/** Translucent dashed outline shown at the candidate cell while a page is dragged. */
+@Composable
+internal fun DragGhostCell(
+    center: Offset,
+    cellWidthPx: Float,
+    cellHeightPx: Float,
+    valid: Boolean,
+) {
+    val color = if (valid) {
         MaterialTheme.colorScheme.primary
     } else {
-        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+        MaterialTheme.colorScheme.error
     }
     Box(
         modifier = Modifier
-            .offset { IntOffset(x, y) }
-            .size(size)
-            .clip(RoundedCornerShape(9.dp))
-            .background(
-                MaterialTheme.colorScheme.surface.copy(
-                    alpha = if (enabled) 0.95f else 0.6f,
-                ),
-            )
-            .clickable(onClick = onClick),
+            .offset {
+                IntOffset(
+                    (center.x - cellWidthPx / 2f).roundToInt(),
+                    (center.y - cellHeightPx / 2f).roundToInt(),
+                )
+            }
+            .size(OverviewCellWidth, OverviewCellHeight)
+            .background(color.copy(alpha = 0.10f), RoundedCornerShape(10.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        OverviewArrow(direction = direction, color = arrowColor, diameter = 10.dp)
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            drawRoundRect(
+                color = color.copy(alpha = 0.8f),
+                cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx()),
+                style = Stroke(
+                    width = 2.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f),
+                ),
+            )
+        }
+        Text(
+            text = "MOVE",
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+        )
     }
 }
 
@@ -288,14 +385,18 @@ internal fun OverviewArrow(
     }
 }
 
-/** One of the four bottom navigation entry points. */
+/** One of the bottom navigation entry points, including the conditional HOME toggle. */
 @Composable
-internal fun RowScope.NavButton(label: String, onClick: () -> Unit) {
+internal fun RowScope.NavButton(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+) {
     Box(
         modifier = Modifier
             .weight(1f)
             .height(56.dp)
-            .clickable(onClick = onClick),
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -303,7 +404,9 @@ internal fun RowScope.NavButton(label: String, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelLarge,
             // `background()` does not provide a content colour, so inherit from the
             // theme explicitly or the label renders black on a dark surface.
-            color = MaterialTheme.colorScheme.onSurface,
+            color = MaterialTheme.colorScheme.onSurface.copy(
+                alpha = if (enabled) 1f else 0.35f,
+            ),
             maxLines = 1,
             overflow = TextOverflow.Clip,
         )
