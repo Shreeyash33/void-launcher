@@ -69,7 +69,7 @@ fun PageGrid(
     onItemTouched: () -> Unit = {},
     onEmptyTap: () -> Unit = {},
     floatingKind: BuiltInWidgetKind? = null,
-    onFloatingDrop: (Int, Int) -> Boolean = { _, _ -> false },
+    floatingPoint: Offset? = null,
 ) {
     // Items mark every interaction; an empty tap that follows one is a tap on
     // an item that bubbled through, not a request to leave the editor.
@@ -150,16 +150,15 @@ fun PageGrid(
             )
         }
 
-        if (floatingKind != null) {
+        if (floatingKind != null && floatingPoint != null) {
             FloatingWidget(
                 kind = floatingKind,
+                point = floatingPoint,
                 cellWidth = cellWidth,
                 cellHeight = cellHeight,
                 cellWidthPx = cellWidthPx,
                 cellHeightPx = cellHeightPx,
                 corner = corner,
-                onTouched = ::markTouch,
-                onDrop = onFloatingDrop,
             )
         }
     }
@@ -476,70 +475,42 @@ private fun resized(
 }
 
 /**
- * A just-picked widget follows the finger over the dotted grid. A touch-down
- * starts tracking, movement updates the preview, and release asks the host to
- * commit; a rejected drop leaves the preview floating for another attempt.
+ * Preview for a widget picked up in the widget list. Pointer tracking lives at
+ * the activity root so the same finger that long-pressed the picker entry can
+ * keep moving the preview after the picker is replaced by the page.
  */
 @Composable
 private fun BoxScope.FloatingWidget(
     kind: BuiltInWidgetKind,
+    point: Offset,
     cellWidth: Dp,
     cellHeight: Dp,
     cellWidthPx: Int,
     cellHeightPx: Int,
     corner: Shape,
-    onTouched: () -> Unit,
-    onDrop: (Int, Int) -> Boolean,
 ) {
-    var at by remember(kind) { mutableStateOf<Offset?>(null) }
     Box(
         modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(kind, cellWidthPx, cellHeightPx, onDrop) {
-                // Simplified: drag on the grid to position, release to drop.
-                // TODO: catch the in-flight long-press pointer handed off from picker.
-                detectDragGestures(
-                    onDragStart = { offset ->
-                        onTouched()
-                        at = offset
-                    },
-                    onDragEnd = {
-                        val point = at ?: return@detectDragGestures
-                        val col = (point.x / cellWidthPx - 0.5f).roundToInt()
-                        val row = (point.y / cellHeightPx - 0.5f).roundToInt()
-                        onDrop(col, row)
-                    },
-                    onDragCancel = { at = null },
-                ) { change, _ ->
-                    at = change.position
-                }
-            },
-    ) {
-        at?.let { point ->
-            Box(
-                modifier = Modifier
-                    .offset {
-                        IntOffset(
-                            point.x.roundToInt() - cellWidthPx / 2,
-                            point.y.roundToInt() - cellHeightPx / 2,
-                        )
-                    }
-                    .width(cellWidth)
-                    .height(cellHeight)
-                    .border(2.dp, MaterialTheme.colorScheme.primary, corner)
-                    .background(
-                        MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        corner,
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = BuiltInWidgets.label(kind),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface,
+            .offset {
+                IntOffset(
+                    point.x.roundToInt() - cellWidthPx / 2,
+                    point.y.roundToInt() - cellHeightPx / 2,
                 )
             }
-        }
+            .width(cellWidth)
+            .height(cellHeight)
+            .border(2.dp, MaterialTheme.colorScheme.primary, corner)
+            .background(
+                MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                corner,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = BuiltInWidgets.label(kind),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
     }
 }
 

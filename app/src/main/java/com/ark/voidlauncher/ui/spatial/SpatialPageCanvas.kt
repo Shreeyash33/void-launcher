@@ -56,7 +56,6 @@ fun SpatialPageCanvas(
     edges: List<EdgeInfo>,
     items: List<GridItemEntity>,
     currentPageId: Long,
-    homePageId: Long,
     onPageChanged: (Long) -> Unit,
     onHomeRequested: () -> Unit,
     onAppClick: (packageName: String) -> Unit,
@@ -76,7 +75,7 @@ fun SpatialPageCanvas(
     onItemTouched: () -> Unit = {},
     onEmptyTap: () -> Unit = {},
     floatingKind: BuiltInWidgetKind? = null,
-    onFloatingDrop: (Int, Int) -> Boolean = { _, _ -> false },
+    floatingPoint: Offset? = null,
 ) {
     val currentPage = remember(pages, currentPageId) {
         pages.firstOrNull { it.pageId == currentPageId }
@@ -217,7 +216,7 @@ fun SpatialPageCanvas(
                     onItemTouched = onItemTouched,
                     onEmptyTap = onEmptyTap,
                     floatingKind = floatingKind,
-                    onFloatingDrop = onFloatingDrop,
+                    floatingPoint = floatingPoint,
                 )
             }
         }

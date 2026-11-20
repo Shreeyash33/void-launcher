@@ -43,14 +43,19 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.backup.BackupManager
 import com.ark.voidlauncher.data.backup.BackupPayload
@@ -101,6 +106,7 @@ import com.ark.voidlauncher.ui.theme.GlassPanel
 import com.ark.voidlauncher.ui.theme.ThemePickerSheet
 import com.ark.voidlauncher.ui.theme.ThemedSystemBars
 import com.ark.voidlauncher.ui.theme.VoidTheme
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -150,6 +156,9 @@ class MainActivity : ComponentActivity() {
             var selectedCanvasItemId by remember { mutableStateOf<Long?>(null) }
             var resizeItemId by remember { mutableStateOf<Long?>(null) }
             var pendingWidgetKind by remember { mutableStateOf<BuiltInWidgetKind?>(null) }
+            var floatingPoint by remember { mutableStateOf<Offset?>(null) }
+            var floatingPointerId by remember { mutableStateOf<Long?>(null) }
+            var rootSize by remember { mutableStateOf(IntSize.Zero) }
             var appPickerItemId by remember { mutableStateOf<Long?>(null) }
             var message by remember { mutableStateOf<String?>(null) }
             var overview by remember { mutableStateOf(false) }
@@ -382,6 +391,15 @@ class MainActivity : ComponentActivity() {
                 appPickerItemId = null
             }
 
+            // Back, page changes, and successful drops all clear the pending
+            // widget; that also ends any in-flight pointer tracking.
+            LaunchedEffect(pendingWidgetKind) {
+                if (pendingWidgetKind == null) {
+                    floatingPointerId = null
+                    floatingPoint = null
+                }
+            }
+
             DisposableEffect(widgetController) {
                 widgetController.startListening()
                 onDispose { widgetController.stopListening() }
@@ -510,6 +528,13 @@ class MainActivity : ComponentActivity() {
                     message = "DROP BLOCKED BY GRID RULES"
                     return false
                 }
+                // Clear the pending state synchronously so a rapid next touch
+                // cannot be mistaken for a retry of the widget just dropped.
+                pendingWidgetKind = null
+                canvasEditing = false
+                selectedCanvasItemId = null
+                floatingPointerId = null
+                floatingPoint = null
                 scope.launch {
                     repository.addBuiltInWidget(
                         kind = kind,
@@ -517,11 +542,29 @@ class MainActivity : ComponentActivity() {
                         col = placed.second.col,
                         row = placed.second.row,
                     )
-                    pendingWidgetKind = null
-                    canvasEditing = false
-                    selectedCanvasItemId = null
                 }
                 return true
+            }
+
+            // Converts a root-level pointer position into the page's lattice.
+            // The root box and the page grid share the same origin and extent.
+            val dropFloatingAt = rememberUpdatedState { point: Offset ->
+                val page = pages.firstOrNull { it.pageId == currentPageId }
+                if (
+                    page == null || page.gridCols <= 0 || page.gridRows <= 0 ||
+                    rootSize.width <= 0 || rootSize.height <= 0
+                ) {
+                    message = "WIDGETS CANNOT BE PLACED HERE"
+                    false
+                } else {
+                    val cellWidthPx = (rootSize.width.toFloat() / page.gridCols)
+                        .roundToInt().coerceAtLeast(1)
+                    val cellHeightPx = (rootSize.height.toFloat() / page.gridRows)
+                        .roundToInt().coerceAtLeast(1)
+                    val col = (point.x / cellWidthPx - 0.5f).roundToInt()
+                    val row = (point.y / cellHeightPx - 0.5f).roundToInt()
+                    dropPendingWidget(col, row)
+                }
             }
 
             fun resizeCanvasItem(geometry: GridGeometry): Boolean {
@@ -553,6 +596,9 @@ class MainActivity : ComponentActivity() {
                     return
                 }
                 pendingWidgetKind = kind
+                if (floatingPoint == null) {
+                    floatingPoint = Offset(rootSize.width / 2f, rootSize.height / 2f)
+                }
                 overview = false
                 screen = Screen.HOME
                 canvasEditing = true
@@ -595,7 +641,67 @@ class MainActivity : ComponentActivity() {
             }
             VoidTheme(themeMode, customPalette) {
                 ThemedSystemBars(darkTheme)
-                Box(modifier = Modifier.fillMaxSize()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { rootSize = it.size }
+                        .pointerInput(Unit) {
+                            // The picker's long press swaps screens while the
+                            // finger is still down. A root-level observer keeps
+                            // that same pointer stream alive across the swap,
+                            // so the preview follows the finger instead of
+                            // waiting for a fresh drag on the new page.
+                            awaitPointerEventScope {
+                                val active = mutableMapOf<Long, Offset>()
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    var released: Pair<Long, Offset>? = null
+                                    for (change in event.changes) {
+                                        val id = change.id.value
+                                        if (change.pressed) {
+                                            active[id] = change.position
+                                        } else {
+                                            active.remove(id)
+                                            released = id to change.position
+                                        }
+                                    }
+
+                                    if (pendingWidgetKind == null) {
+                                        floatingPointerId = null
+                                        floatingPoint = null
+                                        continue
+                                    }
+
+                                    val trackingId = floatingPointerId
+                                    if (trackingId == null) {
+                                        val entry = active.entries.lastOrNull()
+                                        if (entry != null) {
+                                            floatingPointerId = entry.key
+                                            floatingPoint = entry.value
+                                        } else if (released != null) {
+                                            // Long-press then immediate lift: the
+                                            // picker closed on the same event.
+                                            floatingPoint = released.second
+                                            dropFloatingAt.value(released.second)
+                                        }
+                                    } else {
+                                        val point = active[trackingId]
+                                        if (point != null) {
+                                            floatingPoint = point
+                                        } else {
+                                            val finalPoint = released
+                                                ?.takeIf { it.first == trackingId }
+                                                ?.second
+                                                ?: floatingPoint
+                                            floatingPointerId = null
+                                            floatingPoint = finalPoint
+                                            if (finalPoint != null) dropFloatingAt.value(finalPoint)
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                ) {
                     when (screen) {
                         Screen.HOME -> {
                             val currentPage = pages.firstOrNull { it.pageId == currentPageId }
@@ -620,7 +726,6 @@ class MainActivity : ComponentActivity() {
                                     edges = edges,
                                     items = items,
                                     currentPageId = currentPageId,
-                                    homePageId = homePageId,
                                     widgetController = widgetController,
                                     onPageChanged = { currentPageId = it },
                                     onHomeRequested = { currentPageId = homePageId },
@@ -663,7 +768,7 @@ class MainActivity : ComponentActivity() {
                                     onRemoveCanvasItem = ::removeCanvasItem,
                                     onExitCanvasEditor = ::exitCanvasEditor,
                                     floatingKind = pendingWidgetKind,
-                                    onFloatingDrop = ::dropPendingWidget,
+                                    floatingPoint = floatingPoint,
                                     pageBackground = {
                                         PageBackgroundRenderer(
                                             background = effectiveBackground,
@@ -1120,7 +1225,6 @@ private fun HomeScreen(
     edges: List<EdgeInfo>,
     items: List<GridItemEntity>,
     currentPageId: Long,
-    homePageId: Long,
     widgetController: WidgetHostController,
     onPageChanged: (Long) -> Unit,
     onHomeRequested: () -> Unit,
@@ -1141,7 +1245,7 @@ private fun HomeScreen(
     onRemoveCanvasItem: (GridItemEntity) -> Unit = {},
     onExitCanvasEditor: () -> Unit = {},
     floatingKind: BuiltInWidgetKind? = null,
-    onFloatingDrop: (Int, Int) -> Boolean = { _, _ -> false },
+    floatingPoint: Offset? = null,
     pageBackground: @Composable () -> Unit = {},
 ) {
     val page = pages.firstOrNull { it.pageId == currentPageId } ?: return
@@ -1159,7 +1263,6 @@ private fun HomeScreen(
             edges = edges,
             items = items,
             currentPageId = currentPageId,
-            homePageId = homePageId,
             onPageChanged = onPageChanged,
             onHomeRequested = onHomeRequested,
             onAppClick = onAppClick,
@@ -1176,7 +1279,7 @@ private fun HomeScreen(
             onItemTouched = { lastItemTouch = System.nanoTime() },
             onEmptyTap = onExitCanvasEditor,
             floatingKind = floatingKind,
-            onFloatingDrop = onFloatingDrop,
+            floatingPoint = floatingPoint,
             widgetContent = { item ->
                 val builtIn = item.widgetKind ?: BuiltInWidgets.fromReference(item.referenceId)
                 when (builtIn) {
