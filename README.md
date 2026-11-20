@@ -49,6 +49,10 @@ The APK will be at `app\build\outputs\apk\debug\app-debug.apk`.
 
 ## Repository setup
 
+See [docs/WORKFLOW.md](docs/WORKFLOW.md) for the backup-before-revision rule,
+the workspace boundary, and the low-memory build commands. Backups live in
+`backups\` and are gitignored. All work must stay inside this project directory.
+
 The local repo is initialised on `main` and has `origin` set to `https://github.com/Shreeyash33/void-launcher.git`. The initial commit has been pushed to `main`. To make future commits:
 
 ```powershell
