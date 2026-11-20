@@ -224,7 +224,10 @@ fun CustomThemeEditorSheet(
         ColorPickerModal(
             initialHex = values[activePicker],
             onDismiss = { pickerIndex = null },
-            onColorChange = { hex -> values[activePicker] = hex },
+            onColorChange = { hex ->
+                values[activePicker] = hex
+                pickerIndex = null
+            },
         )
     }
 }
