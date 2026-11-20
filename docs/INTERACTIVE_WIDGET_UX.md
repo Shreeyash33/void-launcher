@@ -85,6 +85,9 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 36. The swipe-direction control on the map exposes all four arrows for every page, superseding the single spawn-neighbour arrow in decision 29. An arrow is disabled and non-toggleable when there is no page in that orthogonal direction; otherwise it toggles the outgoing edge in that direction.
 37. While a page is selected by long-press, the map bottom bar gains a `SET HOME` / `HOME` toggle. Tapping it makes that page the HOME page at its current coordinates; the previous HOME page's stored type becomes `WIDGET`. HOME is derived from the single home-coordinate preference, can be anywhere on the map, and the Android Home button therefore opens the selected page. An `APP_DRAWER` page cannot become HOME.
 38. The prompt, drag selection, and home toggle use theme surface/content colours; never a hardcoded white dialog on a dark theme.
+39. The app has a canonical `DEFAULT` state: exactly five pages — `HOME` at `(0,0)`, `WIDGET` pages at `(1,0)`, `(-1,0)` and `(0,-1)`, and an `APP_DRAWER` at `(0,1)` — with bidirectional edges between `HOME` and each neighbour. No other pages, grid items, backgrounds, app customizations, pinned apps, or custom theme values exist in the default state.
+40. Settings gains a `RESET ALL` action with a confirmation dialog. Confirming deletes all customization and applies the `DEFAULT` state, then returns the user to the default `HOME` page. This replaces manual page/edge cleanup as the supported way to return to a clean launcher.
+41. Reset must be transactional: all Room tables are cleared and reseeded in one transaction, and DataStore preferences are cleared only after that transaction commits, so a failed reset can never leave `HOME` pointing at a page that no longer exists.
 
 ## Data implications
 
