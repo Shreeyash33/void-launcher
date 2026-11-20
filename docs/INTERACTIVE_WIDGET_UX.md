@@ -58,6 +58,15 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
     6. If HERE is the `APP_DRAWER` page, placement is rejected with a clear message; switch to a HOME/WIDGET page first.
 19. All placement, overlap, and single-hop overflow rules remain enforced. Built-in widgets use the same resolver as every other item.
 
+### Map and page creation (2026-11-20)
+
+20. Long-press empty canvas continues to open the overview map.
+21. The map draws a faint dotted grid behind the page tiles so the extent and edges of the map are visible.
+22. Every coordinate where the next page could validly be placed shows a dotted-border preview tile with a `+` icon. The preview uses a 16:9 **height:width** portrait aspect ratio (taller than wide) instead of a square, so it reads like a phone screen.
+23. Tapping a `+` preview creates a `WIDGET` page at that coordinate, exits the map, and makes the new page the current HERE page.
+24. A setting controls whether the page coordinate detail is shown or hidden. It defaults to visible and affects the normal-page label and the map tiles.
+25. Resize handle visuals are smaller than the current implementation; the usable drag targets remain large enough to grab reliably.
+
 ## Data implications
 
 - Add a persisted `pageType` to pages and a persisted `widgetKind` plus app-list membership to grid items.
@@ -88,3 +97,7 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 - Long-press in the widget list returns to the HERE page with a floating widget that follows the finger and drops onto the visible grid.
 - Corner/edge handles resize live; the numeric dialog still works as a fallback.
 - Existing system widgets are not deleted by this change.
+- The map shows faint dotted grid lines and `+` preview tiles at every valid next-page coordinate.
+- A `+` preview creates a page at that coordinate and opens it; the preview aspect ratio is 16:9 height:width.
+- The coordinate-detail setting hides and shows coordinate labels without changing placement behavior.
+- Resize handles are visually smaller but still draggable.
