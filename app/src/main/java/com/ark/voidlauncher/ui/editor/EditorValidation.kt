@@ -46,4 +46,37 @@ object EditorValidation {
 
         return PageGraphValidator.validate(pages, proposedEdges, homePageId).isValid
     }
+
+    /**
+     * True when [change] would strand at least one page that was not already
+     * stranded. Unlike [edgeChangeIsSafe], this does not reject a graph that was
+     * already incomplete, so the map can repair isolated pages one link at a time.
+     * It still refuses any change that makes connectivity worse.
+     */
+    fun edgeChangeStrandsAdditionalPages(
+        pages: List<PageInfo>,
+        edges: List<EdgeInfo>,
+        homePageId: Long,
+        change: EdgeChange,
+    ): Boolean {
+        val pageIds = pages.asSequence().map { it.pageId }.toSet()
+        val proposedEdges = when (change) {
+            is EdgeChange.SetEdge -> {
+                val edge = change.edge
+                if (edge.fromPageId !in pageIds || edge.toPageId !in pageIds) return true
+                edges.filterNot {
+                    it.fromPageId == edge.fromPageId && it.swipeDirection == edge.swipeDirection
+                } + edge
+            }
+
+            is EdgeChange.RemoveEdge -> edges.filterNot {
+                it.fromPageId == change.fromPageId && it.swipeDirection == change.direction
+            }
+        }
+
+        val before = PageGraphValidator.validate(pages, edges, homePageId)
+        val after = PageGraphValidator.validate(pages, proposedEdges, homePageId)
+        return after.pagesWithoutConnection.any { it !in before.pagesWithoutConnection } ||
+            after.pagesWithoutPathToHome.any { it !in before.pagesWithoutPathToHome }
+    }
 }

@@ -893,7 +893,7 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     EdgeChange.RemoveEdge(childId, direction)
                                 }
-                                if (EditorValidation.edgeChangeIsSafe(
+                                if (!EditorValidation.edgeChangeStrandsAdditionalPages(
                                         pages, edges, homePageId, change,
                                     )
                                 ) {
