@@ -67,6 +67,15 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 24. A setting controls whether the page coordinate detail is shown or hidden. It defaults to visible and affects the normal-page label and the map tiles.
 25. Resize handle visuals are smaller than the current implementation; the usable drag targets remain large enough to grab reliably.
 
+### Map and theme refinements (2026-11-20)
+
+26. Existing page tiles on the map use the same portrait 16:9 height:width ratio as the `+` previews.
+27. The map grid lines use a clearly visible dotted stroke rather than a barely perceptible one.
+28. Tapping a `+` preview creates the page but **stays on the map**; it does not change the current HERE page.
+29. A small faint arrow on a page toggles the navigation link to the neighbour it was spawned from. Disabled means the page has no navigation access; enabling creates the swipe edge, disabling removes it. Graph safety still applies.
+30. The custom theme editor gets a color modal with hex input, RGBA numeric input and a hue wheel, opened by a small toggle button and closed with a cross.
+31. Modals on the settings surface use the active theme's surface colour (no white background in dark theme).
+
 ## Data implications
 
 - Add a persisted `pageType` to pages and a persisted `widgetKind` plus app-list membership to grid items.

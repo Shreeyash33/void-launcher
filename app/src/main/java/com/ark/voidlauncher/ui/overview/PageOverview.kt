@@ -118,7 +118,7 @@ fun PageOverview(
         val outgoing = remember(edges) { overviewOutgoing(edges) }
         val edgeHighlightColor = MaterialTheme.colorScheme.primary
         val edgeColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
-        val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)
+        val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
 
         Box(
             modifier = Modifier

@@ -876,13 +876,11 @@ class MainActivity : ComponentActivity() {
                             onAddPage = { x, y ->
                                 scope.launch {
                                     val id = repository.addPage(x, y)
+                                    // Adding a page keeps the map open so several pages can
+                                    // be laid out in one pass. HERE only changes when the
+                                    // user explicitly selects a page.
                                     if (id == null) {
                                         message = "PAGE ALREADY EXISTS OR OUT OF RANGE"
-                                    } else {
-                                        currentPageId = id
-                                        canvasEditing = false
-                                        selectedCanvasItemId = null
-                                        overview = false
                                     }
                                 }
                             },
