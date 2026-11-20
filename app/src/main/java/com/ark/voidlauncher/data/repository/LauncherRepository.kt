@@ -26,6 +26,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
+/** Result of a Room-only transaction whose preference write must happen after commit. */
+private data class HomeUpdate(val ok: Boolean, val newCoord: Pair<Int, Int>?)
+
 /** Single write surface for editor/canvas callbacks. Reads stay reactive. */
 class LauncherRepository(
     private val database: VoidDatabase,
@@ -81,8 +84,10 @@ class LauncherRepository(
     ): Long? {
         if (x !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) return null
         if (y !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) return null
-        if (database.pageDao().getByCoordOnce(x, y) != null) return null
         return database.withTransaction {
+            if (database.pageDao().getByCoordOnce(x, y) != null) {
+                return@withTransaction null
+            }
             val id = database.pageDao().insert(
                 PageEntity(
                     coordX = x,
@@ -91,7 +96,7 @@ class LauncherRepository(
                     pageType = pageType,
                 ),
             )
-            val pages = database.pageDao().observeAll().first().map { it.toPageInfo() }
+            val pages = database.pageDao().getAllOnce().map { it.toPageInfo() }
             primaryNeighbour(pages, x, y)?.let { (neighbour, direction) ->
                 database.pageEdgeDao().insert(
                     PageEdgeEntity(id, direction, neighbour.pageId),
@@ -106,24 +111,30 @@ class LauncherRepository(
      * outgoing) are dropped and exactly one default outgoing edge is derived at the
      * destination; the effective HOME follows the moved page if it was home.
      */
-    suspend fun movePage(pageId: Long, x: Int, y: Int): Boolean = database.withTransaction {
-        val page = database.pageDao().getByIdOnce(pageId) ?: return@withTransaction false
-        val rows = database.pageDao().observeAll().first().map { it.toPageInfo() }
-        if (!isValidPageDestination(rows, x, y, pageId)) return@withTransaction false
-
+    suspend fun movePage(pageId: Long, x: Int, y: Int): Boolean {
         val (homeX, homeY) = prefs.homeCoord.first()
-        val wasHome = page.coordX == homeX && page.coordY == homeY
-        database.pageEdgeDao().deleteInvolving(pageId)
-        database.pageDao().update(page.copy(coordX = x, coordY = y))
-        if (wasHome) prefs.setHomeCoord(x, y)
+        val result = database.withTransaction {
+            val page = database.pageDao().getByIdOnce(pageId)
+                ?: return@withTransaction HomeUpdate(false, null)
+            val rows = database.pageDao().getAllOnce().map { it.toPageInfo() }
+            if (!isValidPageDestination(rows, x, y, pageId)) {
+                return@withTransaction HomeUpdate(false, null)
+            }
 
-        val others = rows.filterNot { it.pageId == pageId }
-        primaryNeighbour(others, x, y)?.let { (neighbour, direction) ->
-            database.pageEdgeDao().insert(
-                PageEdgeEntity(pageId, direction, neighbour.pageId),
-            )
+            val wasHome = page.coordX == homeX && page.coordY == homeY
+            database.pageEdgeDao().deleteInvolving(pageId)
+            database.pageDao().update(page.copy(coordX = x, coordY = y))
+
+            val others = rows.filterNot { it.pageId == pageId }
+            primaryNeighbour(others, x, y)?.let { (neighbour, direction) ->
+                database.pageEdgeDao().insert(
+                    PageEdgeEntity(pageId, direction, neighbour.pageId),
+                )
+            }
+            HomeUpdate(ok = true, newCoord = if (wasHome) x to y else null)
         }
-        true
+        result.newCoord?.let { (newX, newY) -> prefs.setHomeCoord(newX, newY) }
+        return result.ok
     }
 
     /**
@@ -131,20 +142,26 @@ class LauncherRepository(
      * home coordinate (roles are derived, not authoritative) and demoted to WIDGET.
      * Drawer pages can never become HOME.
      */
-    suspend fun setHomePage(pageId: Long): Boolean = database.withTransaction {
-        val target = database.pageDao().getByIdOnce(pageId) ?: return@withTransaction false
-        if (target.pageType == PageType.APP_DRAWER) return@withTransaction false
-
+    suspend fun setHomePage(pageId: Long): Boolean {
         val (homeX, homeY) = prefs.homeCoord.first()
-        val previous = database.pageDao().getByCoordOnce(homeX, homeY)
-        if (previous != null && previous.pageId != target.pageId &&
-            previous.pageType != PageType.APP_DRAWER
-        ) {
-            database.pageDao().update(previous.copy(pageType = PageType.WIDGET))
+        val result = database.withTransaction {
+            val target = database.pageDao().getByIdOnce(pageId)
+                ?: return@withTransaction HomeUpdate(false, null)
+            if (target.pageType == PageType.APP_DRAWER) {
+                return@withTransaction HomeUpdate(false, null)
+            }
+
+            val previous = database.pageDao().getByCoordOnce(homeX, homeY)
+            if (previous != null && previous.pageId != target.pageId &&
+                previous.pageType != PageType.APP_DRAWER
+            ) {
+                database.pageDao().update(previous.copy(pageType = PageType.WIDGET))
+            }
+            database.pageDao().update(target.copy(pageType = PageType.HOME))
+            HomeUpdate(true, target.coordX to target.coordY)
         }
-        database.pageDao().update(target.copy(pageType = PageType.HOME))
-        prefs.setHomeCoord(target.coordX, target.coordY)
-        true
+        result.newCoord?.let { (newX, newY) -> prefs.setHomeCoord(newX, newY) }
+        return result.ok
     }
 
     suspend fun deletePage(pageId: Long) {
@@ -328,7 +345,7 @@ class LauncherRepository(
 
             // Old backups predate page roles. Guarantee a drawer so APPS always
             // has a destination, reusing the seeded DOWN neighbour when free.
-            if (database.pageDao().observeAll().first()
+            if (database.pageDao().getAllOnce()
                 .none { it.pageType == PageType.APP_DRAWER }
             ) {
                 val x = VoidDatabase.APP_DRAWER_COORD_X

@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -60,7 +59,6 @@ internal fun PageCell(
     isCurrent: Boolean,
     showCoordDetail: Boolean = true,
     itemCount: Int,
-    outgoing: Set<SwipeDirection>,
     isSelected: Boolean = false,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
@@ -174,19 +172,6 @@ internal fun PageCell(
             )
 
             Spacer(Modifier.weight(1f))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                SwipeDirection.entries.forEach { direction ->
-                    OverviewArrow(
-                        direction = direction,
-                        color = if (direction in outgoing) {
-                            markerColor
-                        } else {
-                            contentColor.copy(alpha = 0.25f)
-                        },
-                    )
-                }
-            }
         }
     }
 }
@@ -258,10 +243,18 @@ internal fun DirectionToggle(
 ) {
     // Two neighbouring tiles contribute one arrow each to the same 28dp gap, so
     // 14dp controls placed flush against their own tile edge never overlap.
+    // Map-space Y is inverted: stored UP (y-1) renders below the tile and stored
+    // DOWN (y+1) renders above it. Keep the logical direction for the edge toggle
+    // but swap only the rendered position and glyph.
+    val visualDirection = when (direction) {
+        SwipeDirection.UP -> SwipeDirection.DOWN
+        SwipeDirection.DOWN -> SwipeDirection.UP
+        else -> direction
+    }
     val size = 14.dp
     val sizePx = with(LocalDensity.current) { size.toPx() }
     val inset = 0f
-    val (x, y) = when (direction) {
+    val (x, y) = when (visualDirection) {
         SwipeDirection.LEFT ->
             (center.x - cellWidthPx / 2f - sizePx - inset).roundToInt() to
                 (center.y - sizePx / 2f).roundToInt()
@@ -291,7 +284,12 @@ internal fun DirectionToggle(
         )
     if (available) controlModifier = controlModifier.clickable(onClick = onClick)
     Box(modifier = controlModifier, contentAlignment = Alignment.Center) {
-        OverviewArrow(direction = direction, color = arrowColor, diameter = 10.dp)
+        OverviewArrow(
+            direction = visualDirection,
+            color = arrowColor,
+            diameter = 10.dp,
+            label = "SWIPE ${direction.name}",
+        )
     }
 }
 
@@ -348,6 +346,7 @@ internal fun OverviewArrow(
     direction: SwipeDirection,
     color: Color,
     diameter: Dp = 10.dp,
+    label: String? = null,
 ) {
     val rotation = when (direction) {
         SwipeDirection.UP -> 0f
@@ -357,7 +356,7 @@ internal fun OverviewArrow(
     }
     Canvas(
         modifier = Modifier.size(diameter),
-        contentDescription = "SWIPE ${direction.name}",
+        contentDescription = label ?: "SWIPE ${direction.name}",
     ) {
         val stroke = 1.5.dp.toPx()
         val centerX = size.width / 2f

@@ -71,39 +71,40 @@ class PagePlacementTest {
     }
 
     @Test
-    fun `spawn neighbour uses stored direction deltas`() {
+    fun `primary neighbour uses stored deltas despite inverted map Y`() {
         val origin = page(0, 0, 1)
-        val child = page(1, 0, 2)
-        val pages = listOf(origin, child)
+        val storedUp = page(0, -1, 2) // renders visually below the origin on the map
 
-        val (neighbour, direction) = spawnNeighbour(pages, child)!!
+        val (neighbour, direction) =
+            primaryNeighbour(listOf(origin, storedUp), storedUp.coordX, storedUp.coordY)!!
         assertEquals(origin.pageId, neighbour.pageId)
-        assertEquals(SwipeDirection.LEFT, direction)
-
-        val above = page(0, -1, 3)
-        assertEquals(
-            SwipeDirection.DOWN,
-            spawnNeighbour(pages + above, above)!!.second,
-        )
-    }
-
-    @Test
-    fun `isolated page has no spawn neighbour`() {
-        assert(spawnNeighbour(listOf(page(0, 0, 1)), page(5, 5, 2)) == null)
+        assertEquals(SwipeDirection.DOWN, direction)
     }
 
     @Test
     fun `primary neighbour follows left right up down priority`() {
         val left = page(4, 5, 2)
         val right = page(6, 5, 3)
-        val up = page(5, 4, 4)
-        val down = page(5, 6, 5)
+        val storedUp = page(5, 4, 4) // visually below the target
+        val storedDown = page(5, 6, 5) // visually above the target
 
-        assertEquals(SwipeDirection.LEFT, primaryNeighbour(listOf(left, right, up, down), 5, 5)!!.second)
-        assertEquals(SwipeDirection.RIGHT, primaryNeighbour(listOf(right, up, down), 5, 5)!!.second)
-        assertEquals(SwipeDirection.UP, primaryNeighbour(listOf(up, down), 5, 5)!!.second)
-        assertEquals(SwipeDirection.DOWN, primaryNeighbour(listOf(down), 5, 5)!!.second)
-        assertEquals(down.pageId, primaryNeighbour(listOf(down), 5, 5)!!.first.pageId)
+        assertEquals(
+            SwipeDirection.LEFT,
+            primaryNeighbour(listOf(left, right, storedUp, storedDown), 5, 5)!!.second,
+        )
+        assertEquals(
+            SwipeDirection.RIGHT,
+            primaryNeighbour(listOf(right, storedUp, storedDown), 5, 5)!!.second,
+        )
+        assertEquals(
+            SwipeDirection.UP,
+            primaryNeighbour(listOf(storedUp, storedDown), 5, 5)!!.second,
+        )
+        assertEquals(
+            SwipeDirection.DOWN,
+            primaryNeighbour(listOf(storedDown), 5, 5)!!.second,
+        )
+        assertEquals(storedDown.pageId, primaryNeighbour(listOf(storedDown), 5, 5)!!.first.pageId)
         assert(primaryNeighbour(emptyList(), 5, 5) == null)
     }
 

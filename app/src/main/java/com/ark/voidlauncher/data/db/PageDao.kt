@@ -25,6 +25,9 @@ interface PageDao {
     @Query("SELECT * FROM pages ORDER BY pageId ASC")
     fun observeAll(): Flow<List<PageEntity>>
 
+    @Query("SELECT * FROM pages ORDER BY pageId ASC")
+    suspend fun getAllOnce(): List<PageEntity>
+
     @Query("SELECT * FROM pages WHERE pageId = :pageId")
     fun observeById(pageId: Long): Flow<PageEntity?>
 

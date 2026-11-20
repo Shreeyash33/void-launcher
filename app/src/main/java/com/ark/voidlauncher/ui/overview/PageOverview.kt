@@ -144,7 +144,6 @@ fun PageOverview(
         var drag by remember { mutableStateOf<PageDrag?>(null) }
 
         val counts = remember(items) { overviewItemCounts(items) }
-        val outgoing = remember(edges) { overviewOutgoing(edges) }
         val pageByCoord = remember(pages) { pages.associateBy { it.coordX to it.coordY } }
 
         // All four directions are rendered for every page. Only slots with an actual
@@ -277,7 +276,6 @@ fun PageOverview(
                         isSelected = page.pageId == selectedPageId,
                         showCoordDetail = showCoordinateDetail,
                         itemCount = counts[page.pageId] ?: 0,
-                        outgoing = outgoing[page.pageId].orEmpty(),
                         onClick = { onSelectPage(page.pageId) },
                         onLongPress = { selectedPageId = page.pageId },
                         onDragStart = {

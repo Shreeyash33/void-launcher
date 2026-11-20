@@ -101,19 +101,6 @@ fun effectivePageType(
     else -> PageType.WIDGET
 }
 
-/**
- * The page a `+` preview most likely spawned from, plus the stored swipe direction
- * that leads from [page] back to it.
- *
- * PageEntity has no parent column, so this is derived deterministically from the
- * current graph using the same priority as default edge creation. That is stable
- * across restarts and matches the order the map computes its previews in.
- */
-fun spawnNeighbour(
-    pages: List<PageInfo>,
-    page: PageInfo,
-): Pair<PageInfo, SwipeDirection>? = primaryNeighbour(pages, page.coordX, page.coordY)
-
 private data class NeighborStep(val dx: Int, val dy: Int, val direction: SwipeDirection)
 
 /**

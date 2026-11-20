@@ -9,7 +9,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.domain.EdgeInfo
-import com.ark.voidlauncher.domain.SwipeDirection
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
@@ -51,10 +50,6 @@ internal const val OverviewMarginCells: Int = 2
 /** Number of placed items per page, used for the "N items" cell caption. */
 internal fun overviewItemCounts(items: List<GridItemEntity>): Map<Long, Int> =
     items.groupingBy { it.pageId }.eachCount()
-
-/** Outgoing swipe directions per source page, used for the cell direction glyphs. */
-internal fun overviewOutgoing(edges: List<EdgeInfo>): Map<Long, Set<SwipeDirection>> =
-    edges.groupBy({ it.fromPageId }) { it.swipeDirection }.mapValues { it.value.toSet() }
 
 /**
  * Faint dotted lattice behind the pages. The boundary rectangle makes the extent
