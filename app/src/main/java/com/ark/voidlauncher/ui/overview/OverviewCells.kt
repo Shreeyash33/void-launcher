@@ -237,7 +237,7 @@ internal fun SpawnLinkToggle(
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        OverviewArrow(direction = direction, color = arrowColor, size = 10.dp)
+        OverviewArrow(direction = direction, color = arrowColor, diameter = 10.dp)
     }
 }
 
@@ -250,7 +250,7 @@ internal fun SpawnLinkToggle(
 internal fun OverviewArrow(
     direction: SwipeDirection,
     color: Color,
-    size: Dp = 10.dp,
+    diameter: Dp = 10.dp,
 ) {
     val rotation = when (direction) {
         SwipeDirection.UP -> 0f
@@ -259,7 +259,7 @@ internal fun OverviewArrow(
         SwipeDirection.LEFT -> 270f
     }
     Canvas(
-        modifier = Modifier.size(size),
+        modifier = Modifier.size(diameter),
         contentDescription = "SWIPE ${direction.name}",
     ) {
         val stroke = 1.5.dp.toPx()

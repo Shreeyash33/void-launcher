@@ -77,7 +77,8 @@ fun ItemResizeDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+        textContentColor = MaterialTheme.colorScheme.onSurface,
         title = { Text(text = "RESIZE ITEM", style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
