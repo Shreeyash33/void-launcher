@@ -915,6 +915,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
+                // Deleting the page you are looking at (or a stale id after a restore)
+                // must never leave a blank canvas.
+                LaunchedEffect(pages, currentPageId, homePageId) {
+                    if (pages.isNotEmpty() && pages.none { it.pageId == currentPageId }) {
+                        currentPageId = pages.firstOrNull { it.pageId == homePageId }?.pageId
+                            ?: pages.first().pageId
+                    }
+                }
+
                 val currentPage = pages.firstOrNull { it.pageId == currentPageId }
                 when (editor) {
                     Editor.PAGES -> PageEditorSheet(
@@ -927,7 +936,13 @@ class MainActivity : ComponentActivity() {
                                 if (id == null) message = "PAGE ALREADY EXISTS OR OUT OF RANGE"
                             }
                         },
-                        onDeletePage = { id -> scope.launch { repository.deletePage(id) } },
+                        onDeletePage = { id ->
+                            if (id == currentPageId) {
+                                currentPageId = pages.firstOrNull { it.pageId != id }?.pageId
+                                    ?: homePageId
+                            }
+                            scope.launch { repository.deletePage(id) }
+                        },
                         onSetEdge = { from, direction, to ->
                             val edge = EdgeInfo(from, direction, to)
                             if (EditorValidation.edgeChangeIsSafe(
