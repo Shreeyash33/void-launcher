@@ -38,6 +38,7 @@ class LauncherRepository(
     private val prefs: LauncherPrefs,
     private val releaseAppWidget: (Int) -> Unit = {},
     private val deleteBackgroundImage: suspend (String) -> Unit = {},
+    private val readAppWidgetIds: suspend () -> List<Int> = { emptyList() },
 ) {
     /** Raw rows shared by derived pages and HOME resolution, independent of prefs. */
     private val pageRows: Flow<List<PageEntity>> = database.pageDao().observeAll()
@@ -330,10 +331,12 @@ class LauncherRepository(
     suspend fun resetToDefault(): Long {
         val execution = ResetExecution(
             readCleanup = {
+                val hostIds = readAppWidgetIds()
+                val referencedIds = database.gridItemDao().getAllOnce()
+                    .filter { it.itemType == GridItemType.WIDGET && it.widgetKind == null }
+                    .mapNotNull { it.referenceId.removePrefix("placeholder:").toIntOrNull() }
                 ResetCleanup(
-                    appWidgetIds = database.gridItemDao().getAllOnce()
-                        .filter { it.itemType == GridItemType.WIDGET && it.widgetKind == null }
-                        .mapNotNull { it.referenceId.toIntOrNull() },
+                    appWidgetIds = (hostIds + referencedIds).distinct(),
                     backgroundImageTokens = database.backgroundDao().getAllOnce()
                         .mapNotNull { it.imageToken },
                 )

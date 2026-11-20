@@ -146,6 +146,7 @@ class MainActivity : ComponentActivity() {
                     prefs = prefs,
                     releaseAppWidget = { widgetController.deleteWidget(it) },
                     deleteBackgroundImage = { backgroundRepository.deleteImage(it) },
+                    readAppWidgetIds = { widgetController.allocatedWidgetIds() },
                 )
             }
             val backgrounds by backgroundRepository.backgrounds.collectAsState(initial = emptyList())

@@ -7,8 +7,11 @@ import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Process
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Owns the launcher's [AppWidgetHost] and wraps the framework app-widget APIs.
@@ -49,6 +52,23 @@ class WidgetHostController(context: Context) {
 
     /** Allocates a fresh app-widget id from the framework. */
     fun allocateAppWidgetId(): Int = host.allocateAppWidgetId()
+
+    /** Every appWidgetId currently owned by this launcher host. */
+    suspend fun allocatedWidgetIds(): List<Int> = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            // AppWidgetHost.getAppWidgetIds() is API 26+; API 24/25 have no public
+            // host-side enumeration, so reset cannot release untracked ids there.
+            emptyList()
+        } else {
+            try {
+                host.appWidgetIds.toList()
+            } catch (@Suppress("TooGenericExceptionCaught") ignored: Exception) {
+                // A stale id can theoretically make the host query fail; reset
+                // should still continue with the ids that can be read.
+                emptyList()
+            }
+        }
+    }
 
     /**
      * Attempts a direct bind. Returns `false` when the system requires the
