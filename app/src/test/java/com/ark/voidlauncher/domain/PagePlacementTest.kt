@@ -31,10 +31,18 @@ class PagePlacementTest {
 
         assert(1 to 0 !in candidates)
         assert(0 to 1 !in candidates)
-        assert(1 to 1 !in candidates)
         assert(-1 to 0 in candidates)
         assert(2 to 0 in candidates)
         assert(0 to 2 in candidates)
+    }
+
+    @Test
+    fun `diagonal cells are excluded unless orthogonally adjacent`() {
+        val pages = listOf(page(0, 0, 1), page(2, 0, 2))
+        val candidates = nextPageCandidates(pages)
+
+        assert(1 to 1 !in candidates)
+        assert(1 to 0 in candidates)
     }
 
     @Test

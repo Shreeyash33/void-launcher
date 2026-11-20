@@ -19,7 +19,7 @@ fun nextPageCandidates(pages: List<PageInfo>): List<Pair<Int, Int>> {
             val y = page.coordY + dy
             if (x !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) continue
             if (y !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) continue
-            if (x to y in occupied) continue
+            if ((x to y) in occupied) continue
             candidates += x to y
         }
     }
