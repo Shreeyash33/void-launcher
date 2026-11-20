@@ -6,6 +6,7 @@ import com.ark.voidlauncher.ThemeMode
 import com.ark.voidlauncher.data.backup.BackupPayload
 import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.BuiltInWidgets
+import com.ark.voidlauncher.domain.DefaultLayout
 import com.ark.voidlauncher.data.db.AppCustomizationEntity
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.data.db.PageEdgeEntity
@@ -21,6 +22,8 @@ import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.effectivePageType
 import com.ark.voidlauncher.domain.isValidPageDestination
 import com.ark.voidlauncher.domain.primaryNeighbour
+import com.ark.voidlauncher.domain.ResetCleanup
+import com.ark.voidlauncher.domain.ResetExecution
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -33,7 +36,12 @@ private data class HomeUpdate(val ok: Boolean, val newCoord: Pair<Int, Int>?)
 class LauncherRepository(
     private val database: VoidDatabase,
     private val prefs: LauncherPrefs,
+    private val releaseAppWidget: (Int) -> Unit = {},
+    private val deleteBackgroundImage: suspend (String) -> Unit = {},
 ) {
+    /** Raw rows shared by derived pages and HOME resolution, independent of prefs. */
+    private val pageRows: Flow<List<PageEntity>> = database.pageDao().observeAll()
+
     /**
      * Page roles are derived, not trusted blindly: APP_DRAWER is authoritative,
      * the configured home coordinate is HOME, and everything else is a widget
@@ -41,7 +49,7 @@ class LauncherRepository(
      * without needing a rewrite on every preference update.
      */
     val pages: Flow<List<PageInfo>> = combine(
-        database.pageDao().observeAll(),
+        pageRows,
         prefs.homeCoord,
     ) { rows, (homeX, homeY) ->
         rows.map { row ->
@@ -67,8 +75,18 @@ class LauncherRepository(
 
     val homeCoord: Flow<Pair<Int, Int>> = prefs.homeCoord
 
-    val homePageId: Flow<Long> = combine(homeCoord, pages) { (x, y), pages ->
-        pages.firstOrNull { it.coordX == x && it.coordY == y }?.pageId
+    /**
+     * Resolve HOME from raw rows so a stale coordinate cannot be reinforced by the
+     * derived roles. The generated id from a reset is never assumed here.
+     */
+    val homePageId: Flow<Long> = combine(homeCoord, pageRows) { (x, y), rows ->
+        rows.firstOrNull { it.coordX == x && it.coordY == y }?.pageId
+            ?: rows.firstOrNull { it.pageType == PageType.HOME }?.pageId
+            ?: rows.firstOrNull {
+                it.coordX == DefaultLayout.home.coordX &&
+                    it.coordY == DefaultLayout.home.coordY
+            }?.pageId
+            ?: rows.firstOrNull()?.pageId
             ?: VoidDatabase.ORIGIN_PAGE_ID
     }
 
@@ -302,6 +320,63 @@ class LauncherRepository(
 
     suspend fun customizeApp(customization: AppCustomizationEntity) {
         database.appCustomizationDao().insert(customization)
+    }
+
+    /**
+     * Replaces all user state with the canonical fresh-install layout. [ResetExecution]
+     * captures host/file cleanup data before Room, then releases resources and clears
+     * preferences only after the single Room transaction commits.
+     */
+    suspend fun resetToDefault(): Long {
+        val execution = ResetExecution(
+            readCleanup = {
+                ResetCleanup(
+                    appWidgetIds = database.gridItemDao().getAllOnce()
+                        .filter { it.itemType == GridItemType.WIDGET && it.widgetKind == null }
+                        .mapNotNull { it.referenceId.toIntOrNull() },
+                    backgroundImageTokens = database.backgroundDao().getAllOnce()
+                        .mapNotNull { it.imageToken },
+                )
+            },
+            commitRoom = {
+                database.withTransaction {
+                    database.pageEdgeDao().deleteAll()
+                    database.gridItemDao().deleteAll()
+                    database.appCustomizationDao().deleteAll()
+                    database.backgroundDao().deleteAll()
+                    database.pageDao().deleteAll()
+
+                    val ids = mutableMapOf<Pair<Int, Int>, Long>()
+                    DefaultLayout.pages.forEach { page ->
+                        ids[page.coordX to page.coordY] = database.pageDao().insert(
+                            PageEntity(
+                                coordX = page.coordX,
+                                coordY = page.coordY,
+                                title = page.title,
+                                pageType = page.pageType,
+                            ),
+                        )
+                    }
+                    DefaultLayout.edges.forEach { edge ->
+                        database.pageEdgeDao().insert(
+                            PageEdgeEntity(
+                                fromPageId = ids.getValue(edge.fromX to edge.fromY),
+                                swipeDirection = edge.direction,
+                                toPageId = ids.getValue(edge.toX to edge.toY),
+                            ),
+                        )
+                    }
+                    ids.getValue(DefaultLayout.home.coordX to DefaultLayout.home.coordY)
+                }
+            },
+            releaseAppWidget = { appWidgetId -> releaseAppWidget(appWidgetId) },
+            deleteBackgroundImage = { token -> deleteBackgroundImage(token) },
+            writeHomeCoord = {
+                prefs.setHomeCoord(DefaultLayout.home.coordX, DefaultLayout.home.coordY)
+            },
+            clearPreferences = { prefs.reset() },
+        )
+        return execution.execute()
     }
 
     /**

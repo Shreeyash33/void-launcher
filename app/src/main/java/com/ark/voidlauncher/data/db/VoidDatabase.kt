@@ -8,6 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.ark.voidlauncher.data.background.BackgroundDao
 import com.ark.voidlauncher.data.background.BackgroundEntity
+import com.ark.voidlauncher.domain.DefaultLayout
+import com.ark.voidlauncher.domain.DefaultPage
 import com.ark.voidlauncher.domain.PageType
 
 @Database(
@@ -138,20 +140,9 @@ abstract class VoidDatabase : RoomDatabase() {
         }
 
         fun seedUpgradeMap(db: SupportSQLiteDatabase) {
-            if (pageIdAt(db, ORIGIN_COORD_X, ORIGIN_COORD_Y) == null) {
-                insertPage(
-                    db, ORIGIN_COORD_X, ORIGIN_COORD_Y,
-                    PageEntity.ORIGIN_TITLE, PageType.HOME,
-                )
-            }
-            DEFAULT_NEIGHBORS.forEach { (x, y) ->
-                if (pageIdAt(db, x, y) == null) {
-                    val type = if (x == APP_DRAWER_COORD_X && y == APP_DRAWER_COORD_Y) {
-                        PageType.APP_DRAWER
-                    } else {
-                        PageType.WIDGET
-                    }
-                    insertPage(db, x, y, "Page $x,$y", type)
+            DefaultLayout.pages.forEach { page ->
+                if (pageIdAt(db, page.coordX, page.coordY) == null) {
+                    insertPage(db, page)
                 }
             }
             if (countRows(db, "page_edges") == 0) seedDefaultEdges(db)
@@ -162,27 +153,22 @@ abstract class VoidDatabase : RoomDatabase() {
         }
 
         private fun seedOriginIfMissing(db: SupportSQLiteDatabase) {
-            if (countRows(db, "pages") == 0 &&
-                pageIdAt(db, ORIGIN_COORD_X, ORIGIN_COORD_Y) == null
-            ) {
-                insertPage(
-                    db, ORIGIN_COORD_X, ORIGIN_COORD_Y,
-                    PageEntity.ORIGIN_TITLE, PageType.HOME,
-                )
+            if (countRows(db, "pages") == 0) {
+                insertPage(db, DefaultLayout.home)
             }
         }
 
         private fun seedDefaultEdges(db: SupportSQLiteDatabase) {
-            // Home -> each neighbour.
-            insertEdge(db, 0, 0, "RIGHT", 1, 0)
-            insertEdge(db, 0, 0, "LEFT", -1, 0)
-            insertEdge(db, 0, 0, "UP", 0, -1)
-            insertEdge(db, 0, 0, "DOWN", 0, 1)
-            // Each neighbour -> Home, so no page is stranded.
-            insertEdge(db, 1, 0, "LEFT", 0, 0)
-            insertEdge(db, -1, 0, "RIGHT", 0, 0)
-            insertEdge(db, 0, -1, "DOWN", 0, 0)
-            insertEdge(db, 0, 1, "UP", 0, 0)
+            DefaultLayout.edges.forEach { edge ->
+                insertEdge(
+                    db,
+                    edge.fromX,
+                    edge.fromY,
+                    edge.direction.name,
+                    edge.toX,
+                    edge.toY,
+                )
+            }
         }
 
         private fun insertEdge(
@@ -202,21 +188,15 @@ abstract class VoidDatabase : RoomDatabase() {
             )
         }
 
-        private fun insertPage(
-            db: SupportSQLiteDatabase,
-            x: Int,
-            y: Int,
-            title: String,
-            pageType: PageType = PageType.WIDGET,
-        ) {
+        private fun insertPage(db: SupportSQLiteDatabase, page: DefaultPage) {
             db.execSQL(
                 "INSERT INTO `pages` " +
                     "(`coordX`, `coordY`, `title`, `gridCols`, `gridRows`, `isSecret`, `pageType`) " +
                     "VALUES (?, ?, ?, ?, ?, 0, ?)",
                 arrayOf<Any>(
-                    x, y, title,
+                    page.coordX, page.coordY, page.title,
                     PageEntity.DEFAULT_GRID_COLS, PageEntity.DEFAULT_GRID_ROWS,
-                    pageType.name,
+                    page.pageType.name,
                 ),
             )
         }
@@ -241,7 +221,5 @@ abstract class VoidDatabase : RoomDatabase() {
                 cursor.close()
             }
         }
-
-        private val DEFAULT_NEIGHBORS = listOf(1 to 0, -1 to 0, 0 to -1, 0 to 1)
     }
 }

@@ -26,6 +26,9 @@ interface GridItemDao {
     @Query("SELECT * FROM grid_items ORDER BY pageId ASC, gridRow ASC, gridCol ASC")
     fun observeAll(): Flow<List<GridItemEntity>>
 
+    @Query("SELECT * FROM grid_items ORDER BY pageId ASC, gridRow ASC, gridCol ASC")
+    suspend fun getAllOnce(): List<GridItemEntity>
+
     @Query("SELECT * FROM grid_items WHERE pageId = :pageId ORDER BY gridRow ASC, gridCol ASC")
     fun observeByPage(pageId: Long): Flow<List<GridItemEntity>>
 
@@ -40,4 +43,7 @@ interface GridItemDao {
 
     @Query("SELECT COUNT(*) FROM grid_items WHERE pageId = :pageId")
     suspend fun countOnPage(pageId: Long): Int
+
+    @Query("DELETE FROM grid_items")
+    suspend fun deleteAll()
 }

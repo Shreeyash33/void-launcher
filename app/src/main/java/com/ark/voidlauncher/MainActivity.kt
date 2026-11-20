@@ -125,7 +125,6 @@ class MainActivity : ComponentActivity() {
             val scope = rememberCoroutineScope()
             val prefs = remember { LauncherPrefs(context) }
             val database = remember { VoidDatabase.getInstance(context) }
-            val repository = remember { LauncherRepository(database, prefs) }
             val appRepository = remember { AppRepository(context) }
             val widgetController = remember { WidgetHostController(context) }
             val versionName = remember {
@@ -141,6 +140,14 @@ class MainActivity : ComponentActivity() {
             val orientationMode by prefs.orientationMode.collectAsState(initial = OrientationMode.PORTRAIT)
             val showCoordinateDetail by prefs.showCoordinateDetail.collectAsState(initial = true)
             val backgroundRepository = remember { BackgroundRepository(database, context) }
+            val repository = remember {
+                LauncherRepository(
+                    database = database,
+                    prefs = prefs,
+                    releaseAppWidget = { widgetController.deleteWidget(it) },
+                    deleteBackgroundImage = { backgroundRepository.deleteImage(it) },
+                )
+            }
             val backgrounds by backgroundRepository.backgrounds.collectAsState(initial = emptyList())
             val pages by repository.pages.collectAsState(initial = emptyList())
             val edges by repository.edges.collectAsState(initial = emptyList())
@@ -811,6 +818,30 @@ class MainActivity : ComponentActivity() {
                             onAddWidget = ::openWidgetPicker,
                             onExport = { exportLauncher.launch("voidlauncher-backup.json") },
                             onImport = { importLauncher.launch(arrayOf("application/json")) },
+                            onResetAll = {
+                                scope.launch {
+                                    runCatching { repository.resetToDefault() }
+                                        .onSuccess { homeId ->
+                                            currentPageId = homeId
+                                            editor = Editor.NONE
+                                            overview = false
+                                            themePicker = false
+                                            customThemeEditor = false
+                                            backgroundEditor = false
+                                            backgroundDraft = null
+                                            screen = Screen.HOME
+                                            canvasEditing = false
+                                            selectedCanvasItemId = null
+                                            resizeItemId = null
+                                            pendingWidgetKind = null
+                                            floatingPointerId = null
+                                            floatingPoint = null
+                                            appPickerItemId = null
+                                            message = "RESET COMPLETE"
+                                        }
+                                        .onFailure { message = it.message ?: "RESET FAILED" }
+                                }
+                            },
                             onAccessibilityToggle = { enabled ->
                                 if (enabled) AccessibilityBridge.openSettings(context)
                             },

@@ -43,4 +43,7 @@ interface PageEdgeDao {
 
     @Query("DELETE FROM page_edges WHERE fromPageId = :pageId OR toPageId = :pageId")
     suspend fun deleteInvolving(pageId: Long)
+
+    @Query("DELETE FROM page_edges")
+    suspend fun deleteAll()
 }

@@ -101,6 +101,14 @@ class LauncherPrefs(private val context: Context) {
         }
     }
 
+    /**
+     * Clears every preference so all flows fall back to their fresh-install values
+     * (SYSTEM theme, PORTRAIT, coordinate detail ON, origin HOME, no pins/palette).
+     */
+    suspend fun reset() {
+        context.dataStore.edit { it.clear() }
+    }
+
     suspend fun setHomeCoord(x: Int, y: Int) {
         context.dataStore.edit { prefs ->
             prefs[HOME_X] = x

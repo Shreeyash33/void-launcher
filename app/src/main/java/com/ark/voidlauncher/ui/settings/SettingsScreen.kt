@@ -31,7 +31,7 @@ import com.ark.voidlauncher.ThemeMode
 import com.ark.voidlauncher.domain.OrientationMode
 import com.ark.voidlauncher.ui.theme.GlassPanel
 
-private enum class SettingsConfirmation { NONE, ACCESSIBILITY, IMPORT }
+private enum class SettingsConfirmation { NONE, ACCESSIBILITY, IMPORT, RESET }
 
 /**
  * Text-first settings surface. Everything except the search drawer's query is
@@ -54,6 +54,7 @@ fun SettingsScreen(
     onAddWidget: () -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
+    onResetAll: () -> Unit,
     onAccessibilityToggle: (Boolean) -> Unit,
     orientationMode: OrientationMode,
     onOrientationChange: (OrientationMode) -> Unit,
@@ -74,6 +75,7 @@ fun SettingsScreen(
                 when (pending) {
                     SettingsConfirmation.ACCESSIBILITY -> onAccessibilityToggle(true)
                     SettingsConfirmation.IMPORT -> onImport()
+                    SettingsConfirmation.RESET -> onResetAll()
                     SettingsConfirmation.NONE -> Unit
                 }
                 confirmation = SettingsConfirmation.NONE
@@ -198,6 +200,17 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(28.dp))
 
+            SectionLabel("RESET")
+            SettingsAction("RESET ALL") { confirmation = SettingsConfirmation.RESET }
+            Text(
+                text = "RESTORES THE DEFAULT 5-PAGE MAP AND CLEARS ALL CUSTOMIZATION.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                modifier = Modifier.padding(vertical = 4.dp),
+            )
+
+            Spacer(Modifier.height(28.dp))
+
             SectionLabel("ACCESSIBILITY")
             Text(
                 text = "Off by default. Needed only for system actions.",
@@ -277,7 +290,27 @@ private fun SettingsConfirmationDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val isImport = kind == SettingsConfirmation.IMPORT
+    val title = when (kind) {
+        SettingsConfirmation.IMPORT -> "IMPORT BACKUP?"
+        SettingsConfirmation.RESET -> "RESET EVERYTHING?"
+        else -> "ENABLE ACCESSIBILITY?"
+    }
+    val body = when (kind) {
+        SettingsConfirmation.IMPORT ->
+            "Importing replaces the current pages, edges, items, and customizations. " +
+                "Export first if you want to keep them."
+        SettingsConfirmation.RESET ->
+            "This deletes all pages, widgets, backgrounds, pinned apps and customizations. " +
+                "The default 5-page map will be restored."
+        else ->
+            "Off by default. Needed only for system actions. This opens Android settings; " +
+                "the service stays off until you switch it on there."
+    }
+    val confirmLabel = when (kind) {
+        SettingsConfirmation.IMPORT -> "IMPORT"
+        SettingsConfirmation.RESET -> "RESET"
+        else -> "OPEN SETTINGS"
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = MaterialTheme.colorScheme.surface,
@@ -285,20 +318,14 @@ private fun SettingsConfirmationDialog(
         textContentColor = MaterialTheme.colorScheme.onSurface,
         title = {
             Text(
-                text = if (isImport) "IMPORT BACKUP?" else "ENABLE ACCESSIBILITY?",
+                text = title,
                 style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
         },
         text = {
             Text(
-                text = if (isImport) {
-                    "Importing replaces the current pages, edges, items, and customizations. " +
-                        "Export first if you want to keep them."
-                } else {
-                    "Off by default. Needed only for system actions. This opens Android settings; " +
-                        "the service stays off until you switch it on there."
-                },
+                text = body,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
             )
@@ -306,7 +333,7 @@ private fun SettingsConfirmationDialog(
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(
-                    text = if (isImport) "IMPORT" else "OPEN SETTINGS",
+                    text = confirmLabel,
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
