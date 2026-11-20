@@ -335,7 +335,7 @@ private fun BoxScope.ResizeHandles(
     onCommit: (GridGeometry) -> Unit,
     onTouched: () -> Unit,
 ) {
-    val edge = -HANDLE_SIZE / 2
+    val edge = -HANDLE_TOUCH_SIZE / 2
     ResizeHandleBox(
         key, ResizeHandle.TOP_LEFT, base,
         Modifier.align(Alignment.TopStart).offset(edge, edge),
@@ -396,11 +396,7 @@ private fun ResizeHandleBox(
     var total by remember(key, handle) { mutableStateOf(Offset.Zero) }
     Box(
         modifier = modifier
-            .size(HANDLE_SIZE)
-            .background(
-                MaterialTheme.colorScheme.primary,
-                RoundedCornerShape(3.dp),
-            )
+            .size(HANDLE_TOUCH_SIZE)
             .pointerInput(
                 key, handle, cellWidthPx, cellHeightPx, maxCols, maxRows,
                 base,
@@ -421,7 +417,17 @@ private fun ResizeHandleBox(
                     onPreview(resized(start, total, handle, cellWidthPx, cellHeightPx, maxCols, maxRows))
                 }
             },
-    )
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(HANDLE_VISUAL_SIZE)
+                .background(
+                    MaterialTheme.colorScheme.primary,
+                    RoundedCornerShape(2.dp),
+                ),
+        )
+    }
 }
 
 private enum class ResizeHandle(
@@ -514,6 +520,8 @@ private fun BoxScope.FloatingWidget(
     }
 }
 
-private val HANDLE_SIZE = 18.dp
+/** Touch target stays large enough to grab; the visible dot is much smaller. */
+private val HANDLE_TOUCH_SIZE = 18.dp
+private val HANDLE_VISUAL_SIZE = 10.dp
 private val ACTION_ZONE = 32.dp
 private const val ITEM_TOUCH_WINDOW_NS = 300_000_000L

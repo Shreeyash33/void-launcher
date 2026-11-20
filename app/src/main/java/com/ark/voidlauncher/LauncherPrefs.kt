@@ -3,6 +3,7 @@ package com.ark.voidlauncher
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -25,6 +26,7 @@ class LauncherPrefs(private val context: Context) {
         private val HOME_X = intPreferencesKey("home_coord_x")
         private val HOME_Y = intPreferencesKey("home_coord_y")
         private val ORIENTATION = stringPreferencesKey("orientation")
+        private val SHOW_COORDINATE_DETAIL = booleanPreferencesKey("show_coordinate_detail")
 
         private val CUSTOM_BACKGROUND = stringPreferencesKey("custom_bg")
         private val CUSTOM_SURFACE = stringPreferencesKey("custom_surface")
@@ -86,6 +88,17 @@ class LauncherPrefs(private val context: Context) {
     /** Configurable home coordinate. Defaults to the origin (0, 0). */
     val homeCoord: Flow<Pair<Int, Int>> = context.dataStore.data.map { prefs ->
         Pair(prefs[HOME_X] ?: 0, prefs[HOME_Y] ?: 0)
+    }
+
+    /** Whether the small coordinate label is shown on pages and map tiles. */
+    val showCoordinateDetail: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[SHOW_COORDINATE_DETAIL] ?: true
+    }
+
+    suspend fun setShowCoordinateDetail(show: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[SHOW_COORDINATE_DETAIL] = show
+        }
     }
 
     suspend fun setHomeCoord(x: Int, y: Int) {

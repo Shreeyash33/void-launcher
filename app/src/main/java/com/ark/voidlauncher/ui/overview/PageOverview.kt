@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.nextPageCandidates
 
 /**
  * Full-screen bird's-eye view of the page graph.
@@ -60,6 +61,8 @@ fun PageOverview(
     onSettings: () -> Unit,
     onWidgets: () -> Unit,
     onPageManagement: () -> Unit,
+    onAddPage: (Int, Int) -> Unit = { _, _ -> },
+    showCoordinateDetail: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     BoxWithConstraints(
@@ -71,6 +74,8 @@ fun PageOverview(
         val density = LocalDensity.current
         val stridePx = with(density) { OverviewStride.toPx() }
         val cellSizePx = with(density) { OverviewCellSize.toPx() }
+        val previewWidthPx = with(density) { PreviewWidth.toPx() }
+        val previewHeightPx = with(density) { PreviewHeight.toPx() }
         val viewportCenter = Offset(constraints.maxWidth * 0.5f, constraints.maxHeight * 0.5f)
 
         val minCoordX = pages.minOfOrNull { it.coordX } ?: 0
@@ -82,12 +87,22 @@ fun PageOverview(
 
         // Map-space centre (px) of each page. Shifting by the minimum coordinate
         // keeps every cell inside a Canvas with non-negative origin.
-        val centers = remember(pages, minCoordX, minCoordY, stridePx) {
+        val centers = remember(pages, minCoordX, maxCoordY, stridePx) {
             pages.associate { page ->
                 val mapX = page.coordX - minCoordX + OverviewMarginCells
                 // Screen Y grows down; inverting the coordinate puts (0,1) above (0,0).
                 val mapY = maxCoordY - page.coordY + OverviewMarginCells
                 page.pageId to Offset((mapX + 0.5f) * stridePx, (mapY + 0.5f) * stridePx)
+            }
+        }
+
+        // Ghost tiles use the same lattice maths as real pages so they line up with
+        // the dotted grid and never drift when the map is panned or zoomed.
+        val previewCenters = remember(pages, minCoordX, maxCoordY, stridePx) {
+            nextPageCandidates(pages).map { (x, y) ->
+                val mapX = x - minCoordX + OverviewMarginCells
+                val mapY = maxCoordY - y + OverviewMarginCells
+                (x to y) to Offset((mapX + 0.5f) * stridePx, (mapY + 0.5f) * stridePx)
             }
         }
 
@@ -103,6 +118,7 @@ fun PageOverview(
         val outgoing = remember(edges) { overviewOutgoing(edges) }
         val edgeHighlightColor = MaterialTheme.colorScheme.primary
         val edgeColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
+        val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)
 
         Box(
             modifier = Modifier
@@ -134,6 +150,12 @@ fun PageOverview(
                     },
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawOverviewGrid(
+                        stridePx = stridePx,
+                        cols = mapCols,
+                        rows = mapRows,
+                        color = gridColor,
+                    )
                     drawOverviewEdges(
                         edges = edges,
                         centers = centers,
@@ -151,9 +173,19 @@ fun PageOverview(
                         coordLabel = "${page.coordX},${page.coordY}",
                         isHome = page.pageId == homePageId,
                         isCurrent = page.pageId == currentPageId,
+                        showCoordDetail = showCoordinateDetail,
                         itemCount = counts[page.pageId] ?: 0,
                         outgoing = outgoing[page.pageId].orEmpty(),
                         onClick = { onSelectPage(page.pageId) },
+                    )
+                }
+
+                previewCenters.forEach { (coord, center) ->
+                    PlacementPreviewCell(
+                        center = center,
+                        previewWidthPx = previewWidthPx,
+                        previewHeightPx = previewHeightPx,
+                        onClick = { onAddPage(coord.first, coord.second) },
                     )
                 }
             }

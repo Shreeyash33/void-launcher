@@ -58,6 +58,8 @@ fun SettingsScreen(
     onOrientationChange: (OrientationMode) -> Unit,
     onEditCustomTheme: () -> Unit,
     onEditBackgrounds: () -> Unit,
+    showCoordinateDetail: Boolean,
+    onShowCoordinateDetailChange: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     var confirmation by remember { mutableStateOf(SettingsConfirmation.NONE) }
@@ -158,6 +160,19 @@ fun SettingsScreen(
 
             SectionLabel("APPEARANCE")
             SettingsAction("EDIT BACKGROUNDS", onEditBackgrounds)
+            Text(
+                text = if (showCoordinateDetail) {
+                    "PAGE COORDINATES: ON"
+                } else {
+                    "PAGE COORDINATES: OFF"
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onShowCoordinateDetailChange(!showCoordinateDetail) }
+                    .padding(vertical = 10.dp),
+            )
 
             Spacer(Modifier.height(28.dp))
 

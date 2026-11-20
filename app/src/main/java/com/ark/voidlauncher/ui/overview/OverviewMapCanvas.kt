@@ -2,7 +2,9 @@ package com.ark.voidlauncher.ui.overview
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.db.GridItemEntity
@@ -46,6 +48,37 @@ internal fun overviewItemCounts(items: List<GridItemEntity>): Map<Long, Int> =
 /** Outgoing swipe directions per source page, used for the cell direction glyphs. */
 internal fun overviewOutgoing(edges: List<EdgeInfo>): Map<Long, Set<SwipeDirection>> =
     edges.groupBy({ it.fromPageId }) { it.swipeDirection }.mapValues { it.value.toSet() }
+
+/**
+ * Faint dotted lattice behind the pages. The boundary rectangle makes the extent
+ * of the map visible while panning and zooming, so empty space reads as "no page
+ * here" rather than as a missing render.
+ */
+internal fun DrawScope.drawOverviewGrid(
+    stridePx: Float,
+    cols: Int,
+    rows: Int,
+    color: Color,
+) {
+    val stroke = 1.dp.toPx()
+    val dashes = PathEffect.dashPathEffect(floatArrayOf(6f, 12f), 0f)
+    val width = cols * stridePx
+    val height = rows * stridePx
+
+    for (col in 0..cols) {
+        val x = col * stridePx
+        drawLine(color, Offset(x, 0f), Offset(x, height), stroke, pathEffect = dashes)
+    }
+    for (row in 0..rows) {
+        val y = row * stridePx
+        drawLine(color, Offset(0f, y), Offset(width, y), stroke, pathEffect = dashes)
+    }
+    drawRect(
+        color = color,
+        size = size,
+        style = Stroke(width = stroke, pathEffect = dashes),
+    )
+}
 
 /**
  * Draws every edge as a line from the source cell to the destination cell with an

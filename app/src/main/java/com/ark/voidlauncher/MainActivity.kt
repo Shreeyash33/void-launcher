@@ -139,6 +139,7 @@ class MainActivity : ComponentActivity() {
             val themeMode by prefs.themeMode.collectAsState(initial = ThemeMode.SYSTEM)
             val customPalette by prefs.customPalette.collectAsState(initial = CustomPalette.darkDefault())
             val orientationMode by prefs.orientationMode.collectAsState(initial = OrientationMode.PORTRAIT)
+            val showCoordinateDetail by prefs.showCoordinateDetail.collectAsState(initial = true)
             val backgroundRepository = remember { BackgroundRepository(database, context) }
             val backgrounds by backgroundRepository.backgrounds.collectAsState(initial = emptyList())
             val pages by repository.pages.collectAsState(initial = emptyList())
@@ -715,6 +716,7 @@ class MainActivity : ComponentActivity() {
                                         .map { it.packageName }.toSet(),
                                     coordX = currentPage.coordX,
                                     coordY = currentPage.coordY,
+                                    showCoordinateDetail = showCoordinateDetail,
                                     onBack = { currentPageId = homePageId },
                                     onLaunch = { appRepository.launch(it) },
                                     onTogglePin = { scope.launch { prefs.togglePinned(it) } },
@@ -747,6 +749,7 @@ class MainActivity : ComponentActivity() {
                                         overview = true
                                     },
                                     onLongPress = { overview = true },
+                                    showCoordinateDetail = showCoordinateDetail,
                                     canvasEditing = canvasEditing,
                                     selectedCanvasItemId = selectedCanvasItemId,
                                     onSelectCanvasItem = ::selectCanvasItem,
@@ -826,6 +829,10 @@ class MainActivity : ComponentActivity() {
                                 backgroundDraft = effectiveBackground
                                 backgroundEditor = true
                             },
+                            showCoordinateDetail = showCoordinateDetail,
+                            onShowCoordinateDetailChange = { show ->
+                                scope.launch { prefs.setShowCoordinateDetail(show) }
+                            },
                         )
 
                         Screen.BACKUP -> BackupScreen(
@@ -866,6 +873,20 @@ class MainActivity : ComponentActivity() {
                                 overview = false
                                 editor = Editor.PAGES
                             },
+                            onAddPage = { x, y ->
+                                scope.launch {
+                                    val id = repository.addPage(x, y)
+                                    if (id == null) {
+                                        message = "PAGE ALREADY EXISTS OR OUT OF RANGE"
+                                    } else {
+                                        currentPageId = id
+                                        canvasEditing = false
+                                        selectedCanvasItemId = null
+                                        overview = false
+                                    }
+                                }
+                            },
+                            showCoordinateDetail = showCoordinateDetail,
                         )
                     }
 
@@ -1234,6 +1255,7 @@ private fun HomeScreen(
     onEditItems: () -> Unit,
     onOpenWidgetPicker: () -> Unit,
     onLongPress: () -> Unit = {},
+    showCoordinateDetail: Boolean = true,
     canvasEditing: Boolean = false,
     selectedCanvasItemId: Long? = null,
     onSelectCanvasItem: (GridItemEntity) -> Unit = {},
@@ -1309,19 +1331,21 @@ private fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // A normal page shows nothing but its coordinates. Everything else is
-        // reachable by long-press gestures or the system Home button.
-        GlassPanel(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 12.dp),
-        ) {
-            Text(
-                text = "${page.coordX},${page.coordY}",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            )
+        // A normal page shows nothing but its coordinates when the setting is on.
+        // Everything else is reachable by long-press gestures or the system Home button.
+        if (showCoordinateDetail) {
+            GlassPanel(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 12.dp),
+            ) {
+                Text(
+                    text = "${page.coordX},${page.coordY}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
         }
 
         if (canvasEditing) {
@@ -1416,6 +1440,7 @@ private fun AppDrawerPage(
     hidden: Set<String>,
     coordX: Int,
     coordY: Int,
+    showCoordinateDetail: Boolean = true,
     onBack: () -> Unit,
     onLaunch: (packageName: String) -> Unit,
     onTogglePin: (packageName: String) -> Unit,
@@ -1432,14 +1457,16 @@ private fun AppDrawerPage(
             onTogglePin = onTogglePin,
             onCustomize = onCustomize,
         )
-        Text(
-            text = "$coordX,$coordY",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(20.dp),
-        )
+        if (showCoordinateDetail) {
+            Text(
+                text = "$coordX,$coordY",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(20.dp),
+            )
+        }
     }
 }
 

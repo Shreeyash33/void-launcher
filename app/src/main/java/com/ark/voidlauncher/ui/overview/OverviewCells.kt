@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,9 +25,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CornerRadius
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.domain.SwipeDirection
@@ -45,6 +50,7 @@ internal fun PageCell(
     coordLabel: String,
     isHome: Boolean,
     isCurrent: Boolean,
+    showCoordDetail: Boolean = true,
     itemCount: Int,
     outgoing: Set<SwipeDirection>,
     onClick: () -> Unit,
@@ -91,13 +97,15 @@ internal fun PageCell(
             .padding(8.dp),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Text(
-                text = coordLabel,
-                style = MaterialTheme.typography.labelMedium,
-                color = contentColor,
-                maxLines = 1,
-                overflow = TextOverflow.Clip,
-            )
+            if (showCoordDetail) {
+                Text(
+                    text = coordLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = contentColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                )
+            }
             Row {
                 if (isHome) {
                     Text(
@@ -139,6 +147,56 @@ internal fun PageCell(
                 }
             }
         }
+    }
+}
+
+/** Height of a next-page preview. Portrait 16:9 height:width, like a phone. */
+internal val PreviewHeight: Dp = OverviewCellSize
+
+/** Width of a next-page preview: 9 units wide for every 16 units tall. */
+internal val PreviewWidth: Dp = OverviewCellSize * 9f / 16f
+
+/**
+ * A tappable ghost page at a coordinate where a new page could be created.
+ * The dashed outline and `+` make it read as an empty slot rather than a page.
+ */
+@Composable
+internal fun PlacementPreviewCell(
+    center: Offset,
+    previewWidthPx: Float,
+    previewHeightPx: Float,
+    onClick: () -> Unit,
+) {
+    val color = MaterialTheme.colorScheme.primary
+    val shape = RoundedCornerShape(10.dp)
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    (center.x - previewWidthPx / 2f).roundToInt(),
+                    (center.y - previewHeightPx / 2f).roundToInt(),
+                )
+            }
+            .size(PreviewWidth, PreviewHeight)
+            .background(color.copy(alpha = 0.06f), shape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            drawRoundRect(
+                color = color.copy(alpha = 0.75f),
+                cornerRadius = CornerRadius(10.dp.toPx(), 10.dp.toPx()),
+                style = Stroke(
+                    width = 1.5.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f),
+                ),
+            )
+        }
+        Text(
+            text = "+",
+            style = MaterialTheme.typography.headlineMedium,
+            color = color,
+        )
     }
 }
 
