@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.SwipeDirection
+import com.ark.voidlauncher.domain.displayTitle
 
 /**
  * Text-first page/edge editor. All state changes leave through callbacks; the caller
@@ -31,6 +32,7 @@ fun PageEditorSheet(
     homePageId: Long,
     onAddPage: (coordX: Int, coordY: Int) -> Unit,
     onDeletePage: (pageId: Long) -> Unit,
+    onRename: (pageId: Long, title: String) -> Unit = { _, _ -> },
     onSetEdge: (fromPageId: Long, direction: SwipeDirection, toPageId: Long) -> Unit,
     onRemoveEdge: (fromPageId: Long, direction: SwipeDirection) -> Unit,
     onSetHomePage: (pageId: Long) -> Unit,
@@ -43,6 +45,8 @@ fun PageEditorSheet(
     var sourceId by remember { mutableStateOf<Long?>(null) }
     var targetId by remember { mutableStateOf<Long?>(null) }
     var direction by remember { mutableStateOf(SwipeDirection.RIGHT) }
+    var renamePageId by remember { mutableStateOf<Long?>(null) }
+    var renameText by remember { mutableStateOf("") }
 
     fun submitAddPage() {
         val x = coordX.trim().toIntOrNull()
@@ -98,9 +102,14 @@ fun PageEditorSheet(
         }
         items(pages, key = { it.pageId }) { page ->
             Text(
-                text = "${page.title.ifBlank { "PAGE ${page.pageId}" }}  (${page.coordX}, ${page.coordY})",
+                text = page.displayTitle,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = "(${page.coordX}, ${page.coordY})",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(modifier = Modifier.fillMaxWidth()) {
                 if (page.pageId == homePageId) {
@@ -112,9 +121,36 @@ fun PageEditorSheet(
                     )
                 }
                 EditorTextAction(
+                    text = "RENAME",
+                    onClick = {
+                        renamePageId = page.pageId
+                        renameText = page.title
+                    },
+                )
+                EditorTextAction(
                     text = "DELETE",
                     onClick = { onDeletePage(page.pageId) },
                 )
+            }
+            if (renamePageId == page.pageId) {
+                EditorTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = "Title",
+                )
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    EditorTextAction(
+                        text = "SAVE TITLE",
+                        onClick = {
+                            onRename(page.pageId, renameText)
+                            renamePageId = null
+                        },
+                    )
+                    EditorTextAction(
+                        text = "CANCEL",
+                        onClick = { renamePageId = null },
+                    )
+                }
             }
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
@@ -132,7 +168,7 @@ fun PageEditorSheet(
             EditorChipRow {
                 pages.forEach { page ->
                     EditorChip(
-                        text = "${page.title.ifBlank { page.pageId.toString() }} (${page.pageId})",
+                        text = "${page.displayTitle} (${page.pageId})",
                         selected = page.pageId == sourceId,
                         onClick = { sourceId = page.pageId },
                     )
@@ -160,7 +196,7 @@ fun PageEditorSheet(
             EditorChipRow {
                 pages.forEach { page ->
                     EditorChip(
-                        text = "${page.title.ifBlank { page.pageId.toString() }} (${page.pageId})",
+                        text = "${page.displayTitle} (${page.pageId})",
                         selected = page.pageId == targetId,
                         onClick = { targetId = page.pageId },
                     )

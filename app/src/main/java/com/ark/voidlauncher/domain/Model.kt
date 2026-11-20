@@ -68,6 +68,10 @@ data class PageInfo(
     }
 }
 
+/** User-facing page name with one shared fallback for blank titles. */
+val PageInfo.displayTitle: String
+    get() = title.ifBlank { "Page $coordX,$coordY" }
+
 data class EdgeInfo(
     val fromPageId: Long,
     val swipeDirection: SwipeDirection,

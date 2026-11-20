@@ -17,6 +17,7 @@ import com.ark.voidlauncher.data.db.toPageInfo
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.PageLinks
 import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.effectivePageType
@@ -205,6 +206,62 @@ class LauncherRepository(
     suspend fun removeEdge(fromPageId: Long, direction: SwipeDirection) {
         val edge = database.pageEdgeDao().getEdgeOnce(fromPageId, direction) ?: return
         database.pageEdgeDao().delete(edge)
+    }
+
+    /**
+     * Writes a user-visible link as its two directed rows in one transaction.
+     * Returns false when either endpoint is not an existing page.
+     */
+    suspend fun setLink(fromPageId: Long, direction: SwipeDirection, toPageId: Long): Boolean {
+        val (outgoing, reverse) = PageLinks.link(fromPageId, direction, toPageId)
+        return database.withTransaction {
+            if (database.pageDao().getByIdOnce(fromPageId) == null ||
+                database.pageDao().getByIdOnce(toPageId) == null
+            ) {
+                return@withTransaction false
+            }
+            // Replacing a slot must also retire the reverse row of the old link,
+            // otherwise the graph keeps a half-link pointing at the previous target.
+            database.pageEdgeDao().getEdgeOnce(fromPageId, direction)?.let { previous ->
+                val oldReverse = PageLinks.link(
+                    previous.fromPageId, previous.swipeDirection, previous.toPageId,
+                ).second
+                database.pageEdgeDao().delete(
+                    PageEdgeEntity(
+                        oldReverse.fromPageId, oldReverse.swipeDirection, oldReverse.toPageId,
+                    ),
+                )
+            }
+            listOf(outgoing, reverse).forEach { edge ->
+                database.pageEdgeDao().insert(
+                    PageEdgeEntity(edge.fromPageId, edge.swipeDirection, edge.toPageId),
+                )
+            }
+            true
+        }
+    }
+
+    /** Deletes both directed rows of a link atomically. Missing rows are harmless. */
+    suspend fun removeLink(fromPageId: Long, direction: SwipeDirection, toPageId: Long): Boolean {
+        val (outgoing, reverse) = PageLinks.link(fromPageId, direction, toPageId)
+        database.withTransaction {
+            listOf(outgoing, reverse).forEach { edge ->
+                database.pageEdgeDao().delete(
+                    PageEdgeEntity(edge.fromPageId, edge.swipeDirection, edge.toPageId),
+                )
+            }
+        }
+        return true
+    }
+
+    /** Renames a page, falling back to its coordinate when the supplied title is blank. */
+    suspend fun renamePage(pageId: Long, title: String): Boolean = database.withTransaction {
+        val page = database.pageDao().getByIdOnce(pageId) ?: return@withTransaction false
+        val trimmed = title.trim()
+        database.pageDao().update(
+            page.copy(title = trimmed.ifBlank { "Page ${page.coordX},${page.coordY}" }),
+        )
+        true
     }
 
     suspend fun setHomeCoord(x: Int, y: Int) {

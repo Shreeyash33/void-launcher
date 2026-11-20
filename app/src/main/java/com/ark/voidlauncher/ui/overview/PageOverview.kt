@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -41,6 +42,7 @@ import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
+import com.ark.voidlauncher.domain.displayTitle
 import com.ark.voidlauncher.domain.isValidPageDestination
 import com.ark.voidlauncher.domain.neighbourCoord
 import com.ark.voidlauncher.domain.nextPageCandidates
@@ -74,6 +76,7 @@ fun PageOverview(
     onSettings: () -> Unit,
     onWidgets: () -> Unit,
     onPageManagement: () -> Unit,
+    onGestures: () -> Unit = {},
     onAddPage: (Int, Int, PageType) -> Unit = { _, _, _ -> },
     onMovePage: (Long, Int, Int) -> Unit = { _, _, _ -> },
     onSetHomePage: (Long) -> Unit = {},
@@ -142,6 +145,7 @@ fun PageOverview(
         var pendingAddCoord by remember { mutableStateOf<Pair<Int, Int>?>(null) }
         var selectedPageId by remember { mutableStateOf<Long?>(null) }
         var drag by remember { mutableStateOf<PageDrag?>(null) }
+        var menuOpen by remember { mutableStateOf(false) }
 
         val counts = remember(items) { overviewItemCounts(items) }
         val pageByCoord = remember(pages) { pages.associateBy { it.coordX to it.coordY } }
@@ -270,6 +274,7 @@ fun PageOverview(
                         center = center,
                         cellWidthPx = cellWidthPx,
                         cellHeightPx = cellHeightPx,
+                        titleLabel = page.displayTitle,
                         coordLabel = "${page.coordX},${page.coordY}",
                         isHome = page.pageId == homePageId,
                         isCurrent = page.pageId == currentPageId,
@@ -370,26 +375,133 @@ fun PageOverview(
             )
         }
 
-        Row(
+        Box(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(56.dp)
-                .background(MaterialTheme.colorScheme.surface),
+                .align(Alignment.TopEnd)
+                .padding(12.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(MaterialTheme.colorScheme.surface)
+                .clickable { menuOpen = true }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
         ) {
-            NavButton("THEMES", onThemes)
-            NavButton("SETTINGS", onSettings)
-            NavButton("WIDGETS", onWidgets)
-            NavButton("PAGES", onPageManagement)
-            val selectedPage = selectedPageId?.let { id -> pages.firstOrNull { it.pageId == id } }
-            if (selectedPage != null) {
-                val isHome = selectedPage.pageId == homePageId
-                val canSetHome = selectedPage.pageType != PageType.APP_DRAWER
-                NavButton(
-                    label = if (isHome) "HOME" else "SET HOME",
-                    onClick = { onSetHomePage(selectedPage.pageId) },
-                    enabled = canSetHome,
+            Text(
+                text = "☰",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+
+        if (menuOpen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.45f))
+                    .clickable { menuOpen = false },
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .fillMaxHeight()
+                    .width(220.dp)
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(16.dp),
+            ) {
+                Text(
+                    text = "MENU",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "THEMES",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            menuOpen = false
+                            onThemes()
+                        }
+                        .padding(vertical = 12.dp),
+                )
+                Text(
+                    text = "SETTINGS",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            menuOpen = false
+                            onSettings()
+                        }
+                        .padding(vertical = 12.dp),
+                )
+                Text(
+                    text = "WIDGETS",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            menuOpen = false
+                            onWidgets()
+                        }
+                        .padding(vertical = 12.dp),
+                )
+                Text(
+                    text = "PAGES",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            menuOpen = false
+                            onPageManagement()
+                        }
+                        .padding(vertical = 12.dp),
+                )
+                Text(
+                    text = "GESTURES",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            menuOpen = false
+                            onGestures()
+                        }
+                        .padding(vertical = 12.dp),
+                )
+                val selectedPage = selectedPageId?.let { id -> pages.firstOrNull { it.pageId == id } }
+                if (selectedPage != null) {
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "SELECTED: ${selectedPage.displayTitle}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (selectedPage.pageId == homePageId) {
+                        Text(
+                            text = "HOME",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                    } else if (selectedPage.pageType != PageType.APP_DRAWER) {
+                        Text(
+                            text = "SET HOME",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    menuOpen = false
+                                    onSetHomePage(selectedPage.pageId)
+                                }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                }
             }
         }
 

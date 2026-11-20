@@ -10,6 +10,11 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.ark.voidlauncher.domain.CustomPalette
+import com.ark.voidlauncher.domain.GestureAction
+import com.ark.voidlauncher.domain.GestureBinding
+import com.ark.voidlauncher.domain.GestureBindings
+import com.ark.voidlauncher.domain.GestureScope
+import com.ark.voidlauncher.domain.GestureTrigger
 import com.ark.voidlauncher.domain.OrientationMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -27,6 +32,8 @@ class LauncherPrefs(private val context: Context) {
         private val HOME_Y = intPreferencesKey("home_coord_y")
         private val ORIENTATION = stringPreferencesKey("orientation")
         private val SHOW_COORDINATE_DETAIL = booleanPreferencesKey("show_coordinate_detail")
+        private val GESTURE_BINDINGS_GLOBAL = stringSetPreferencesKey("gesture_bindings_global")
+        private val GESTURE_BINDINGS_PAGES = stringSetPreferencesKey("gesture_bindings_pages")
 
         private val CUSTOM_BACKGROUND = stringPreferencesKey("custom_bg")
         private val CUSTOM_SURFACE = stringPreferencesKey("custom_surface")
@@ -45,6 +52,60 @@ class LauncherPrefs(private val context: Context) {
         private const val ORIENTATION_PORTRAIT = "portrait"
         private const val ORIENTATION_LANDSCAPE = "landscape"
         private const val ORIENTATION_AUTO = "auto"
+
+        /** Encodings: G|<TRIGGER>|<ACTION> and P|<x>|<y>|<TRIGGER>|<ACTION>. */
+        private fun encodeBinding(
+            scope: GestureScope,
+            pageCoord: Pair<Int, Int>?,
+            trigger: GestureTrigger,
+            action: GestureAction,
+        ): String = when (scope) {
+            GestureScope.GLOBAL -> "G|${trigger.name}|${action.name}"
+            GestureScope.PAGE -> "P|${pageCoord!!.first}|${pageCoord.second}|${trigger.name}|${action.name}"
+        }
+
+        /** True when [raw] encodes any action for this exact scope/coord/trigger. */
+        private fun isBindingFor(
+            raw: String,
+            scope: GestureScope,
+            pageCoord: Pair<Int, Int>?,
+            trigger: GestureTrigger,
+        ): Boolean {
+            return when (scope) {
+                GestureScope.GLOBAL -> {
+                    val parts = raw.split('|')
+                    parts.size == 3 && parts[0] == "G" && parts[1] == trigger.name
+                }
+                GestureScope.PAGE -> {
+                    val coord = pageCoord ?: return false
+                    val parts = raw.split('|')
+                    parts.size == 5 && parts[0] == "P" &&
+                        parts[1] == coord.first.toString() &&
+                        parts[2] == coord.second.toString() &&
+                        parts[3] == trigger.name
+                }
+            }
+        }
+
+        private fun decodeGlobalBinding(raw: String): GestureBinding? {
+            val parts = raw.split('|')
+            if (parts.size != 3 || parts[0] != "G") return null
+            val trigger = runCatching { GestureTrigger.valueOf(parts[1]) }.getOrNull() ?: return null
+            val action = runCatching { GestureAction.valueOf(parts[2]) }.getOrNull() ?: return null
+            if (action == GestureAction.NONE) return null
+            return GestureBinding(trigger, action)
+        }
+
+        private fun decodePageBinding(raw: String): Pair<Pair<Int, Int>, GestureBinding>? {
+            val parts = raw.split('|')
+            if (parts.size != 5 || parts[0] != "P") return null
+            val x = parts[1].toIntOrNull() ?: return null
+            val y = parts[2].toIntOrNull() ?: return null
+            val trigger = runCatching { GestureTrigger.valueOf(parts[3]) }.getOrNull() ?: return null
+            val action = runCatching { GestureAction.valueOf(parts[4]) }.getOrNull() ?: return null
+            if (action == GestureAction.NONE) return null
+            return (x to y) to GestureBinding(trigger, action)
+        }
     }
 
     /** Shared DataStore instance so migrations read the same file as prefs. */
@@ -95,6 +156,44 @@ class LauncherPrefs(private val context: Context) {
         prefs[SHOW_COORDINATE_DETAIL] ?: true
     }
 
+    /** Persisted gesture bindings; page entries take precedence over globals. */
+    val gestureBindings: Flow<GestureBindings> = context.dataStore.data.map { prefs ->
+        val global = (prefs[GESTURE_BINDINGS_GLOBAL] ?: emptySet())
+            .mapNotNull { decodeGlobalBinding(it) }
+            .toSet()
+        val byPageCoord = (prefs[GESTURE_BINDINGS_PAGES] ?: emptySet())
+            .mapNotNull { decodePageBinding(it) }
+            .groupBy({ it.first }, { it.second })
+            .mapValues { (_, bindings) -> bindings.toSet() }
+        GestureBindings(global = global, byPageCoord = byPageCoord)
+    }
+
+    /**
+     * Adds or replaces one binding. Passing [action] as null or NONE removes it.
+     * [pageCoord] is required for PAGE scope and ignored for GLOBAL scope.
+     */
+    suspend fun setGestureBinding(
+        scope: GestureScope,
+        pageCoord: Pair<Int, Int>?,
+        trigger: GestureTrigger,
+        action: GestureAction?,
+    ) {
+        require(scope != GestureScope.PAGE || pageCoord != null) {
+            "pageCoord is required when scope is PAGE"
+        }
+        val removing = action == null || action == GestureAction.NONE
+        val key = if (scope == GestureScope.GLOBAL) GESTURE_BINDINGS_GLOBAL else GESTURE_BINDINGS_PAGES
+        val replacement = if (removing) null else encodeBinding(scope, pageCoord, trigger, action!!)
+
+        context.dataStore.edit { prefs ->
+            // Drop any prior action for this trigger so a rebind never leaves a stale twin.
+            val kept = (prefs[key] ?: emptySet())
+                .filterNot { isBindingFor(it, scope, pageCoord, trigger) }
+                .toSet()
+            prefs[key] = if (replacement == null) kept else kept + replacement
+        }
+    }
+
     suspend fun setShowCoordinateDetail(show: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[SHOW_COORDINATE_DETAIL] = show
@@ -103,7 +202,7 @@ class LauncherPrefs(private val context: Context) {
 
     /**
      * Clears every preference so all flows fall back to their fresh-install values
-     * (SYSTEM theme, PORTRAIT, coordinate detail ON, origin HOME, no pins/palette).
+     * (SYSTEM theme, PORTRAIT, coordinate detail ON, origin HOME, no pins/palette/gesture bindings).
      */
     suspend fun reset() {
         context.dataStore.edit { it.clear() }

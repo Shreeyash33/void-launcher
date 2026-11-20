@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +51,7 @@ fun AppDrawerOverlay(
     onTogglePin: (packageName: String) -> Unit,
     onCustomize: (packageName: String) -> Unit,
     modifier: Modifier = Modifier,
+    listState: LazyListState = rememberLazyListState(),
 ) {
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
@@ -124,7 +127,7 @@ fun AppDrawerOverlay(
 
         Spacer(Modifier.height(4.dp))
 
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             if (visibleApps.isEmpty()) {
                 item {
                     Text(

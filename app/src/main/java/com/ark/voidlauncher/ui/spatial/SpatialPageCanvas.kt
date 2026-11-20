@@ -39,12 +39,14 @@ import kotlin.math.abs
  * Full-screen spatial surface for one launcher page.
  *
  * Swipes are read directly from pointer input (no nested Pagers). A drag past
- * [SWIPE_THRESHOLD] on its dominant axis looks up a single outgoing edge from
- * the current page. When an edge exists the page animates off-screen, the new
- * page slides in from the opposite side, and [onPageChanged] is invoked. When
- * there is no edge (a "wall"), haptic feedback fires and [onWallHit] is called
- * so the host can show a visual cue. A double tap calls [onHomeRequested], and
- * a long press on empty space calls [onLongPress] to open the overview map.
+ * [SWIPE_THRESHOLD] on its dominant axis asks [reverseTarget] for a history
+ * destination first, then looks up a single outgoing edge from the current
+ * page. When a destination exists the page animates off-screen, the new page
+ * slides in from the opposite side, and [onPageChanged] is invoked with the
+ * *stored* edge direction. When there is no destination (a "wall"), haptic
+ * feedback fires and [onWallHit] is called so the host can show a visual cue.
+ * A double tap calls [onHomeRequested], and a long press on empty space calls
+ * [onLongPress] to open the overview map.
  *
  * While [editing] is true all page gestures are suspended: the canvas becomes
  * a plain editing surface where items handle their own drag/tap gestures and
@@ -56,11 +58,13 @@ fun SpatialPageCanvas(
     edges: List<EdgeInfo>,
     items: List<GridItemEntity>,
     currentPageId: Long,
-    onPageChanged: (Long) -> Unit,
+    onPageChanged: (targetPageId: Long, storedDirection: SwipeDirection) -> Unit,
     onHomeRequested: () -> Unit,
     onAppClick: (packageName: String) -> Unit,
     onLongPress: () -> Unit,
     onWallHit: (SwipeDirection) -> Unit,
+    reverseTarget: (currentPageId: Long, gestureDirection: SwipeDirection) -> Long? =
+        { _, _ -> null },
     widgetContent: @Composable (GridItemEntity) -> Unit,
     pageBackground: @Composable () -> Unit = {
         Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
@@ -99,7 +103,7 @@ fun SpatialPageCanvas(
         Modifier
     } else {
         Modifier
-            .pointerInput(currentPageId, edges, onPageChanged, onWallHit, view) {
+            .pointerInput(currentPageId, edges, onPageChanged, onWallHit, reverseTarget, view) {
                 val thresholdPx = SWIPE_THRESHOLD.toPx()
                 var dragTotal = Offset.Zero
 
@@ -127,11 +131,16 @@ fun SpatialPageCanvas(
                             // Paging semantics: a right swipe reveals the page on
                             // the left, so look up the mirrored stored direction.
                             val edgeDirection = direction.edgeForGesture
-                            val edge = edges.firstOrNull {
+                            // A reverse swipe takes precedence over a normal edge,
+                            // but hosts may return null to keep the usual graph
+                            // navigation. The callback receives the gesture
+                            // stored direction, matching PageHistory entries.
+                            val reverse = reverseTarget(currentPageId, direction)
+                            val targetPageId = reverse ?: edges.firstOrNull {
                                 it.fromPageId == currentPageId &&
                                     it.swipeDirection == edgeDirection
-                            }
-                            if (edge == null) {
+                            }?.toPageId
+                            if (targetPageId == null) {
                                 view.performHapticFeedback(wallFeedback())
                                 onWallHit(direction)
                                 scope.launch { translation.animateTo(Offset.Zero, spring()) }
@@ -151,7 +160,7 @@ fun SpatialPageCanvas(
                                         exit,
                                         tween(durationMillis = EXIT_DURATION_MS),
                                     )
-                                    onPageChanged(edge.toPageId)
+                                    onPageChanged(targetPageId, edgeDirection)
                                     translation.snapTo(entry)
                                     translation.animateTo(
                                         Offset.Zero,

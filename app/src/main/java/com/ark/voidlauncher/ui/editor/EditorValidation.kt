@@ -3,12 +3,28 @@ package com.ark.voidlauncher.ui.editor
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageGraphValidator
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.PageLinks
 import com.ark.voidlauncher.domain.SwipeDirection
 
 /** A proposed edge mutation. The caller owns the real graph; this is never applied in place. */
 sealed interface EdgeChange {
     data class SetEdge(val edge: EdgeInfo) : EdgeChange
     data class RemoveEdge(val fromPageId: Long, val direction: SwipeDirection) : EdgeChange
+}
+
+/** A proposed change to a bidirectional page link. Never applied in place. */
+sealed interface LinkChange {
+    data class SetLink(
+        val fromPageId: Long,
+        val direction: SwipeDirection,
+        val toPageId: Long,
+    ) : LinkChange
+
+    data class RemoveLink(
+        val fromPageId: Long,
+        val direction: SwipeDirection,
+        val toPageId: Long,
+    ) : LinkChange
 }
 
 /** Pure validation helpers used by the editor UI before it emits an intent. */
@@ -71,6 +87,42 @@ object EditorValidation {
 
             is EdgeChange.RemoveEdge -> edges.filterNot {
                 it.fromPageId == change.fromPageId && it.swipeDirection == change.direction
+            }
+        }
+
+        val before = PageGraphValidator.validate(pages, edges, homePageId)
+        val after = PageGraphValidator.validate(pages, proposedEdges, homePageId)
+        return after.pagesWithoutConnection.any { it !in before.pagesWithoutConnection } ||
+            after.pagesWithoutPathToHome.any { it !in before.pagesWithoutPathToHome }
+    }
+
+    /**
+     * True when [change] would strand at least one page that was not already
+     * stranded. A link change touches both directed rows; a SET first clears any
+     * existing link between the same pair in the same direction, then adds the
+     * two fresh rows. Unknown page ids are always rejected.
+     */
+    fun linkChangeStrandsAdditionalPages(
+        pages: List<PageInfo>,
+        edges: List<EdgeInfo>,
+        homePageId: Long,
+        change: LinkChange,
+    ): Boolean {
+        val pageIds = pages.asSequence().map { it.pageId }.toSet()
+
+        val proposedEdges = when (change) {
+            is LinkChange.SetLink -> {
+                if (change.fromPageId !in pageIds || change.toPageId !in pageIds) return true
+                PageLinks.withoutLink(
+                    edges, change.fromPageId, change.direction, change.toPageId,
+                ) + PageLinks.link(change.fromPageId, change.direction, change.toPageId).toList()
+            }
+
+            is LinkChange.RemoveLink -> {
+                if (change.fromPageId !in pageIds || change.toPageId !in pageIds) return true
+                PageLinks.withoutLink(
+                    edges, change.fromPageId, change.direction, change.toPageId,
+                )
             }
         }
 

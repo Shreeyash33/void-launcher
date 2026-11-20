@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -70,12 +71,17 @@ import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
+import com.ark.voidlauncher.domain.displayTitle
+import com.ark.voidlauncher.domain.GestureBindings
+import com.ark.voidlauncher.domain.GestureScope
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.OrientationMode
+import com.ark.voidlauncher.domain.PageHistory
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.background.BackgroundKind
+import com.ark.voidlauncher.domain.edgeForGesture
 import com.ark.voidlauncher.domain.background.BackgroundResolver
 import com.ark.voidlauncher.domain.background.BackgroundScope
 import com.ark.voidlauncher.domain.background.PageBackground
@@ -97,7 +103,9 @@ import com.ark.voidlauncher.ui.overview.PageOverview
 import com.ark.voidlauncher.ui.editor.EdgeChange
 import com.ark.voidlauncher.ui.editor.EditorValidation
 import com.ark.voidlauncher.ui.editor.ItemEditorSheet
+import com.ark.voidlauncher.ui.editor.LinkChange
 import com.ark.voidlauncher.ui.editor.PageEditorSheet
+import com.ark.voidlauncher.ui.gestures.GestureSettingsSheet
 import com.ark.voidlauncher.ui.grid.GridGeometry
 import com.ark.voidlauncher.ui.grid.ItemResizeDialog
 import com.ark.voidlauncher.ui.settings.SettingsScreen as SettingsSurface
@@ -108,6 +116,7 @@ import com.ark.voidlauncher.ui.theme.ThemedSystemBars
 import com.ark.voidlauncher.ui.theme.VoidTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -139,6 +148,9 @@ class MainActivity : ComponentActivity() {
             val customPalette by prefs.customPalette.collectAsState(initial = CustomPalette.darkDefault())
             val orientationMode by prefs.orientationMode.collectAsState(initial = OrientationMode.PORTRAIT)
             val showCoordinateDetail by prefs.showCoordinateDetail.collectAsState(initial = true)
+            val gestureBindings by prefs.gestureBindings.collectAsState(
+                initial = GestureBindings(),
+            )
             val backgroundRepository = remember { BackgroundRepository(database, context) }
             val repository = remember {
                 LauncherRepository(
@@ -159,6 +171,7 @@ class MainActivity : ComponentActivity() {
             val appDrawerPageId by repository.appDrawerPageId.collectAsState(initial = null)
 
             var currentPageId by remember { mutableLongStateOf(VoidDatabase.ORIGIN_PAGE_ID) }
+            val pageHistory = remember { PageHistory() }
             var screen by remember { mutableStateOf(Screen.HOME) }
             var editor by remember { mutableStateOf(Editor.NONE) }
             var canvasEditing by remember { mutableStateOf(false) }
@@ -172,6 +185,7 @@ class MainActivity : ComponentActivity() {
             var message by remember { mutableStateOf<String?>(null) }
             var overview by remember { mutableStateOf(false) }
             var themePicker by remember { mutableStateOf(false) }
+            var gestureEditor by remember { mutableStateOf(false) }
             var customThemeEditor by remember { mutableStateOf(false) }
             var backgroundEditor by remember { mutableStateOf(false) }
             var backgroundDraft by remember { mutableStateOf<PageBackground?>(null) }
@@ -266,6 +280,8 @@ class MainActivity : ComponentActivity() {
                         if (!coreRestored) {
                             message = "RESTORE FAILED"
                         } else {
+                            pageHistory.clear()
+                            currentPageId = repository.homePageId.first()
                             // P8/P9 preferences are not touched by LauncherRepository.restore
                             // (it only restores theme). Apply them here with safe defaults.
                             runCatching {
@@ -424,10 +440,10 @@ class MainActivity : ComponentActivity() {
             }
 
             BackHandler(
-                enabled = themePicker || customThemeEditor || backgroundEditor || overview ||
-                    resizeItemId != null || pendingWidgetKind != null ||
+                enabled = themePicker || gestureEditor || customThemeEditor || backgroundEditor ||
+                    overview || resizeItemId != null || pendingWidgetKind != null ||
                     appPickerItemId != null || canvasEditing ||
-                    screen != Screen.HOME || editor != Editor.NONE,
+                    screen != Screen.HOME || editor != Editor.NONE || pageHistory.size > 0,
             ) {
                 when {
                     pendingWidgetKind != null -> {
@@ -442,6 +458,7 @@ class MainActivity : ComponentActivity() {
                         backgroundDraft = null
                     }
                     themePicker -> themePicker = false
+                    gestureEditor -> gestureEditor = false
                     overview -> overview = false
                     canvasEditing -> {
                         canvasEditing = false
@@ -449,6 +466,16 @@ class MainActivity : ComponentActivity() {
                     }
                     editor != Editor.NONE -> editor = Editor.NONE
                     screen != Screen.HOME -> screen = Screen.HOME
+                    pageHistory.size > 0 -> {
+                        // Skip stale ids (e.g. a page deleted before history was pruned).
+                        while (pageHistory.size > 0) {
+                            val target = pageHistory.pop() ?: break
+                            if (pages.any { it.pageId == target }) {
+                                currentPageId = target
+                                break
+                            }
+                        }
+                    }
                 }
             }
 
@@ -725,10 +752,28 @@ class MainActivity : ComponentActivity() {
                                         .map { it.packageName }.toSet(),
                                     hidden = customizations.filter { it.isHidden }
                                         .map { it.packageName }.toSet(),
+                                    title = currentPage.displayTitle,
                                     coordX = currentPage.coordX,
                                     coordY = currentPage.coordY,
                                     showCoordinateDetail = showCoordinateDetail,
-                                    onBack = { currentPageId = homePageId },
+                                    onBack = {
+                                        if (homePageId != currentPageId) {
+                                            pageHistory.push(currentPageId, homePageId)
+                                        }
+                                        currentPageId = homePageId
+                                    },
+                                    onReverseSwipe = { direction ->
+                                        pageHistory.reverseTarget(currentPageId, direction)
+                                            .takeIf { target -> pages.any { it.pageId == target } }
+                                            ?.let { target ->
+                                                pageHistory.push(
+                                                    currentPageId,
+                                                    target,
+                                                    direction.edgeForGesture,
+                                                )
+                                                currentPageId = target
+                                            }
+                                    },
                                     onLaunch = { appRepository.launch(it) },
                                     onTogglePin = { scope.launch { prefs.togglePinned(it) } },
                                     onCustomize = { editor = Editor.TYPOGRAPHY },
@@ -740,12 +785,31 @@ class MainActivity : ComponentActivity() {
                                     items = items,
                                     currentPageId = currentPageId,
                                     widgetController = widgetController,
-                                    onPageChanged = { currentPageId = it },
-                                    onHomeRequested = { currentPageId = homePageId },
+                                    onPageChanged = { targetId, direction ->
+                                        pageHistory.push(currentPageId, targetId, direction)
+                                        currentPageId = targetId
+                                    },
+                                    reverseTarget = { pageId, direction ->
+                                        pageHistory.reverseTarget(pageId, direction)
+                                            .takeIf { target ->
+                                                pages.any { it.pageId == target }
+                                            }
+                                    },
+                                    onHomeRequested = {
+                                        if (homePageId != currentPageId) {
+                                            pageHistory.push(currentPageId, homePageId)
+                                        }
+                                        currentPageId = homePageId
+                                    },
                                     onAppClick = { appRepository.launch(it) },
                                     onOpenDrawerPage = {
                                         exitCanvasEditor()
-                                        appDrawerPageId?.let { currentPageId = it }
+                                        appDrawerPageId?.let { target ->
+                                            if (target != currentPageId) {
+                                                pageHistory.push(currentPageId, target)
+                                            }
+                                            currentPageId = target
+                                        }
                                     },
                                     onOpenSettings = {
                                         exitCanvasEditor()
@@ -823,6 +887,7 @@ class MainActivity : ComponentActivity() {
                                 scope.launch {
                                     runCatching { repository.resetToDefault() }
                                         .onSuccess { homeId ->
+                                            pageHistory.clear()
                                             currentPageId = homeId
                                             editor = Editor.NONE
                                             overview = false
@@ -891,6 +956,7 @@ class MainActivity : ComponentActivity() {
                             currentPageId = currentPageId,
                             homePageId = homePageId,
                             onSelectPage = { id ->
+                                if (id != currentPageId) pageHistory.push(currentPageId, id)
                                 currentPageId = id
                                 overview = false
                             },
@@ -907,6 +973,10 @@ class MainActivity : ComponentActivity() {
                             onPageManagement = {
                                 overview = false
                                 editor = Editor.PAGES
+                            },
+                            onGestures = {
+                                overview = false
+                                gestureEditor = true
                             },
                             onAddPage = { x, y, pageType ->
                                 scope.launch {
@@ -935,38 +1005,27 @@ class MainActivity : ComponentActivity() {
                             },
                             onToggleEdge = { pageId, direction, toPageId, enable ->
                                 val change = if (enable) {
-                                    EdgeChange.SetEdge(EdgeInfo(pageId, direction, toPageId))
+                                    LinkChange.SetLink(pageId, direction, toPageId)
                                 } else {
-                                    EdgeChange.RemoveEdge(pageId, direction)
+                                    LinkChange.RemoveLink(pageId, direction, toPageId)
                                 }
-                                if (!EditorValidation.edgeChangeStrandsAdditionalPages(
+                                if (!EditorValidation.linkChangeStrandsAdditionalPages(
                                         pages, edges, homePageId, change,
                                     )
                                 ) {
                                     scope.launch {
-                                        if (enable) {
-                                            repository.setEdge(pageId, direction, toPageId)
+                                        val ok = if (enable) {
+                                            repository.setLink(pageId, direction, toPageId)
                                         } else {
-                                            repository.removeEdge(pageId, direction)
+                                            repository.removeLink(pageId, direction, toPageId)
                                         }
+                                        if (!ok) message = "LINK COULD NOT BE UPDATED"
                                     }
                                 } else {
                                     message = "THAT WOULD STRAND A PAGE"
                                 }
                             },
                             showCoordinateDetail = showCoordinateDetail,
-                        )
-                    }
-
-                    if (message != null) {
-                        Text(
-                            text = message.orEmpty(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .padding(16.dp)
-                                .clickable { message = null },
                         )
                     }
 
@@ -1005,11 +1064,19 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         onDeletePage = { id ->
+                            pageHistory.dropPage(id)
                             if (id == currentPageId) {
                                 currentPageId = pages.firstOrNull { it.pageId != id }?.pageId
                                     ?: homePageId
                             }
                             scope.launch { repository.deletePage(id) }
+                        },
+                        onRename = { id, title ->
+                            scope.launch {
+                                if (!repository.renamePage(id, title)) {
+                                    message = "PAGE RENAME FAILED"
+                                }
+                            }
                         },
                         onSetEdge = { from, direction, to ->
                             val edge = EdgeInfo(from, direction, to)
@@ -1199,6 +1266,48 @@ class MainActivity : ComponentActivity() {
                         onDismiss = { resizeItemId = null },
                     )
                 }
+
+                if (gestureEditor) {
+                    GestureSettingsSheet(
+                        currentPage = currentPage,
+                        bindings = gestureBindings,
+                        onDismiss = { gestureEditor = false },
+                        onSetBinding = { gestureScope, trigger, action ->
+                            scope.launch {
+                                prefs.setGestureBinding(
+                                    scope = gestureScope,
+                                    pageCoord = if (gestureScope == GestureScope.PAGE) {
+                                        currentPage?.let { it.coordX to it.coordY }
+                                    } else {
+                                        null
+                                    },
+                                    trigger = trigger,
+                                    action = action,
+                                )
+                            }
+                        },
+                    )
+                }
+
+                message?.let { status ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = 64.dp, start = 16.dp, end = 16.dp),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        GlassPanel(
+                            modifier = Modifier.clickable { message = null },
+                        ) {
+                            Text(
+                                text = status,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
@@ -1331,7 +1440,9 @@ private fun HomeScreen(
     items: List<GridItemEntity>,
     currentPageId: Long,
     widgetController: WidgetHostController,
-    onPageChanged: (Long) -> Unit,
+    onPageChanged: (targetPageId: Long, storedDirection: SwipeDirection) -> Unit,
+    reverseTarget: (currentPageId: Long, gestureDirection: SwipeDirection) -> Long? =
+        { _, _ -> null },
     onHomeRequested: () -> Unit,
     onAppClick: (String) -> Unit,
     onOpenDrawerPage: () -> Unit,
@@ -1370,6 +1481,7 @@ private fun HomeScreen(
             items = items,
             currentPageId = currentPageId,
             onPageChanged = onPageChanged,
+            reverseTarget = reverseTarget,
             onHomeRequested = onHomeRequested,
             onAppClick = onAppClick,
             onLongPress = {
@@ -1415,20 +1527,28 @@ private fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // A normal page shows nothing but its coordinates when the setting is on.
-        // Everything else is reachable by long-press gestures or the system Home button.
+        // The page name is primary; coordinates are secondary detail. Everything
+        // else is reachable by long-press gestures or the system Home button.
         if (showCoordinateDetail) {
             GlassPanel(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 12.dp),
             ) {
-                Text(
-                    text = "${page.coordX},${page.coordY}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = page.displayTitle,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                    Text(
+                        text = "${page.coordX}, ${page.coordY}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
+                    )
+                }
             }
         }
 
@@ -1522,34 +1642,104 @@ private fun AppDrawerPage(
     pinned: Set<String>,
     favorites: Set<String>,
     hidden: Set<String>,
+    title: String,
     coordX: Int,
     coordY: Int,
     showCoordinateDetail: Boolean = true,
     onBack: () -> Unit,
+    onReverseSwipe: (SwipeDirection) -> Unit,
     onLaunch: (packageName: String) -> Unit,
     onTogglePin: (packageName: String) -> Unit,
     onCustomize: (packageName: String) -> Unit,
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
+    val drawerListState = rememberLazyListState()
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                val thresholdPx = 80.dp.toPx()
+                awaitPointerEventScope {
+                    var activeId: Long? = null
+                    var startX = 0f
+                    var startY = 0f
+                    var latched = false
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (activeId == null && event.changes.count { it.pressed } == 1) {
+                            val down = event.changes.first { it.pressed }
+                            activeId = down.id.value
+                            startX = down.position.x
+                            startY = down.position.y
+                            latched = false
+                        }
+                        val id = activeId
+                        if (id != null) {
+                            val active = event.changes.firstOrNull {
+                                it.id.value == id && it.pressed
+                            }
+                            if (active == null) {
+                                activeId = null
+                                latched = false
+                            } else if (!latched) {
+                                val dx = active.position.x - startX
+                                val dy = active.position.y - startY
+                                if (kotlin.math.abs(dx) >= thresholdPx ||
+                                    kotlin.math.abs(dy) >= thresholdPx
+                                ) {
+                                    val direction = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) {
+                                        if (dx > 0) SwipeDirection.RIGHT else SwipeDirection.LEFT
+                                    } else {
+                                        if (dy > 0) SwipeDirection.DOWN else SwipeDirection.UP
+                                    }
+                                    // Vertical reversals only at the list edges so ordinary
+                                    // app-list scrolling never navigates away. Horizontal
+                                    // reversals are always allowed.
+                                    val allowed = when (direction) {
+                                        SwipeDirection.UP -> !drawerListState.canScrollForward
+                                        SwipeDirection.DOWN -> !drawerListState.canScrollBackward
+                                        else -> true
+                                    }
+                                    if (allowed) {
+                                        latched = true
+                                        onReverseSwipe(direction)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+    ) {
         AppDrawerOverlay(
             apps = apps,
             pinned = pinned,
             favorites = favorites,
             hidden = hidden,
+            listState = drawerListState,
             onBack = onBack,
             onLaunch = onLaunch,
             onTogglePin = onTogglePin,
             onCustomize = onCustomize,
         )
         if (showCoordinateDetail) {
-            Text(
-                text = "$coordX,$coordY",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            GlassPanel(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(20.dp),
-            )
+            ) {
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        text = "$coordX, $coordY",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }
@@ -1560,19 +1750,27 @@ private fun BuiltInWidgetPickerScreen(
     onBack: () -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(horizontal = 24.dp, vertical = 32.dp),
     ) {
         Text(
             text = "BACK",
             style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
             modifier = Modifier.clickable(onClick = onBack).padding(8.dp),
         )
         Spacer(Modifier.height(20.dp))
-        Text("CHOOSE A WIDGET", style = MaterialTheme.typography.labelMedium)
+        Text(
+            text = "CHOOSE A WIDGET",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
         Text(
             text = "LONG-PRESS TO PICK UP",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
         LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -1580,6 +1778,7 @@ private fun BuiltInWidgetPickerScreen(
                 Text(
                     text = BuiltInWidgets.label(kind),
                     style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .fillMaxWidth()
                         .pointerInput(kind) {
@@ -1588,7 +1787,7 @@ private fun BuiltInWidgetPickerScreen(
                         .padding(vertical = 16.dp),
                 )
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                 )
             }
         }
@@ -1605,7 +1804,7 @@ private fun WidgetAppPicker(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.surface),
     ) {
         Column(
             modifier = Modifier
@@ -1620,7 +1819,11 @@ private fun WidgetAppPicker(
                     modifier = Modifier.clickable(onClick = onDone).padding(8.dp),
                 )
                 Spacer(Modifier.weight(1f))
-                Text("ADD APPS", style = MaterialTheme.typography.labelMedium)
+                Text(
+                    text = "ADD APPS",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
             Spacer(Modifier.height(12.dp))
             LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -1641,11 +1844,11 @@ private fun WidgetAppPicker(
                         Text(
                             text = app.label,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onBackground,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                     HorizontalDivider(
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f),
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
                     )
                 }
             }

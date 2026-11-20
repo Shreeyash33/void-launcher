@@ -16,13 +16,13 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 
 ### Normal page UI
 
-5. A normal HOME or WIDGET page shows **only the page coordinates** as a small, unobtrusive label.
+5. A normal HOME or WIDGET page shows the **page title first**, with coordinates as a small, secondary label when detail is enabled. Superseded by decision 44 below.
 6. Remove from the normal page overlay:
    - the in-app `HOME` tag/button (the Android system Home button is the way home);
    - the `MAP` button (long-press empty canvas still opens the map);
    - all four direction arrows;
    - the bottom `APPS` / `EDIT` / `SETTINGS` nav.
-7. The overview map keeps its existing bottom nav: `THEMES`, `SETTINGS`, `WIDGETS`, `PAGES`.
+7. The overview map is reached by long-press; its top-right hamburger opens a sidebar with `THEMES`, `SETTINGS`, `WIDGETS`, `PAGES` and `GESTURES`. Superseded by decision 45 below.
 
 ### Editor mode and menus
 
@@ -32,7 +32,7 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
    - contextual `RESIZE` and `REMOVE` actions for the selected widget;
    - a popup menu containing `APPS`, `EDIT`, `SETTINGS`, `WIDGETS`.
 9. `APPS` in the editor menu navigates to the `APP_DRAWER` page. It does not open an overlay drawer on top of the current page.
-10. `EDIT` and `SETTINGS` are available only from editor mode or from the map nav. They are never shown on a normal page.
+10. `EDIT` and `SETTINGS` are available only from editor mode or from the map sidebar. They are never shown on a normal page.
 11. Tapping empty canvas space exits editor mode. Bottom-nav taps are gone from normal pages; the editor popup menu closes with Back or by choosing an action.
 
 ### Widgets
@@ -51,7 +51,7 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 17. Resizing is interactive: the selected widget gets visible corner and edge drag handles. Dragging a handle changes the span live, clamped and validated by the existing placement rules. The numeric `RESIZE` dialog remains available as a fallback.
 18. Add-widget flow:
     1. Long-press empty canvas opens the overview map.
-    2. Tap `WIDGETS` in the map bottom nav.
+    2. Open the map's top-right hamburger sidebar and tap `WIDGETS`.
     3. Scroll the widget list and **long-press** the desired widget.
     4. The picker closes, the app returns to the current HERE page, enters canvas editor mode, and the new widget is attached to the finger as a floating preview.
     5. Moving the finger moves the preview over the dotted grid. Releasing commits the widget to the nearest valid cell through `PlacementResolver`. Invalid releases show a message and keep the widget floating for another attempt. Back cancels the pending widget.
@@ -83,7 +83,7 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 34. When a page is moved, all edges where it is the source or destination are removed, then one default outgoing edge is created from the moved page to the first existing neighbour in priority order: **LEFT**, **RIGHT**, **TOP/UP**, **BOTTOM/DOWN**. The user must configure any additional swipe directions afterward.
 35. A newly created page also gets one default outgoing edge using the same LEFT, RIGHT, UP, DOWN priority. This replaces the old UP, RIGHT, DOWN, LEFT spawn priority.
 36. The swipe-direction control on the map exposes all four arrows for every page, superseding the single spawn-neighbour arrow in decision 29. An arrow is disabled and non-toggleable when there is no page in that orthogonal direction; otherwise it toggles the outgoing edge in that direction.
-37. While a page is selected by long-press, the map bottom bar gains a `SET HOME` / `HOME` toggle. Tapping it makes that page the HOME page at its current coordinates; the previous HOME page's stored type becomes `WIDGET`. HOME is derived from the single home-coordinate preference, can be anywhere on the map, and the Android Home button therefore opens the selected page. An `APP_DRAWER` page cannot become HOME.
+37. While a page is selected by long-press, the map sidebar gains a `SET HOME` / `HOME` action. Tapping it makes that page the HOME page at its current coordinates; the previous HOME page's stored type becomes `WIDGET`. HOME is derived from the single home-coordinate preference, can be anywhere on the map, and the Android Home button therefore opens the selected page. An `APP_DRAWER` page cannot become HOME.
 38. The prompt, drag selection, and home toggle use theme surface/content colours; never a hardcoded white dialog on a dark theme.
 39. The app has a canonical `DEFAULT` state: exactly five pages — `HOME` at `(0,0)`, `WIDGET` pages at `(1,0)`, `(-1,0)` and `(0,-1)`, and an `APP_DRAWER` at `(0,1)` — with bidirectional edges between `HOME` and each neighbour. No other pages, grid items, backgrounds, app customizations, pinned apps, or custom theme values exist in the default state.
 40. Settings gains a `RESET ALL` action with a confirmation dialog. Confirming deletes all customization and applies the `DEFAULT` state, then returns the user to the default `HOME` page. This replaces manual page/edge cleanup as the supported way to return to a clean launcher.
@@ -111,7 +111,7 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 
 ## Acceptance checks
 
-- Normal pages show only page coordinates — no HOME, MAP, arrows, or bottom nav.
+- Normal pages show the page title first and coordinates secondarily — no HOME, MAP, arrows, or bottom nav.
 - Editor mode exposes APPS / EDIT / SETTINGS / WIDGETS and contextual widget actions.
 - APPS navigates to the dedicated app drawer page.
 - No numeric coordinate entry is required to add, move, or resize a widget.
@@ -123,3 +123,23 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 - A `+` preview creates a page at that coordinate and opens it; the preview aspect ratio is 16:9 height:width.
 - The coordinate-detail setting hides and shows coordinate labels without changing placement behavior.
 - Resize handles are visually smaller but still draggable.
+
+## Confirmed product decisions (2026-11-20, continued)
+
+Decisions 42–48 supersede decisions 5, 7, 10 and 37, plus the map-bottom-nav wording in decision 18 and the acceptance check at line 114. Where this section conflicts with earlier text, this section wins.
+
+### Links, navigation and identity
+
+42. Each page has four bidirectional link toggles (`LEFT`, `RIGHT`, `UP`, `DOWN`). One toggle creates or removes BOTH directed edge rows between the two neighbouring pages. Internal directed rows remain for swipe resolution, but the map exposes one link, not two one-way entries. A toggle is rejected if it would strand a page.
+43. `BACK` and the reverse of the swipe used to enter a page navigate to the last page entered. This applies to `APP_DRAWER` pages too. If no history entry matches, normal link navigation applies.
+44. Pages have user-editable titles. The launcher displays the page name first and coordinates secondarily.
+
+### Chrome and gestures
+
+45. The map bottom navigation is removed. A top-right hamburger opens a sidebar containing `THEMES`, `SETTINGS`, `WIDGETS`, `PAGES` and `GESTURES`. Status/error messages render at the top so bottom UI cannot hide them.
+46. Gestures are user-assignable globally or per page. Page-scoped bindings override global bindings. The same action may be assigned to multiple gestures.
+47. Initial gesture triggers: `LONG_PRESS`, `DOUBLE_TAP`, `TRIPLE_TAP`, `PINCH_ZOOM_IN`, `PINCH_ZOOM_OUT`, `SWIPE_2_*`, `SWIPE_3_*`. Initial actions: `ZOOM_IN`, `ZOOM_OUT`, `LOCK_SCREEN`, `LOCK_LAUNCHER`, `OPEN_EDITOR`, `OPEN_MAP`, `GO_HOME`, `OPEN_SETTINGS`, `OPEN_APP_DRAWER`, `OPEN_WIDGET_PICKER`, `TOGGLE_COORDINATES`, `SYSTEM_BACK`, `SYSTEM_RECENTS`, `SYSTEM_NOTIFICATIONS`.
+
+### Theming
+
+48. Widget picker and dialog text always use `MaterialTheme.colorScheme.onSurface` / `onSurfaceVariant` so dark theme never shows black text on dark surfaces.
