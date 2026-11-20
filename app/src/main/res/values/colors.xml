@@ -3,5 +3,5 @@
     <color name="void_icon_background">#121212</color>
     <!-- Startup window background follows the system light/dark preference so the
          first frame matches SYSTEM-mode users. Values-night overrides this. -->
-    <color name="void_window_background">#0B0B0D</color>
+    <color name="void_window_background">#F6F3ED</color>
 </resources>

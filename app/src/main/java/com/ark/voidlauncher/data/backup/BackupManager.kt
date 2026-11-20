@@ -48,6 +48,7 @@ object BackupManager {
             put("homeCoordY", payload.homeCoordY)
             put("theme", payload.theme)
             put("orientation", payload.orientation)
+            put("showCoordinateDetail", payload.showCoordinateDetail)
             payload.customPalette?.let { put("customPalette", paletteJson(it)) }
             put("backgrounds", arrayJson(payload.backgrounds, ::backgroundJson))
             put("pages", arrayJson(payload.pages, ::pageJson))
@@ -78,6 +79,7 @@ object BackupManager {
             homeCoordY = root.optInt("homeCoordY", 0),
             theme = root.nullableString("theme") ?: "",
             orientation = root.nullableString("orientation") ?: "PORTRAIT",
+            showCoordinateDetail = root.optBoolean("showCoordinateDetail", true),
             customPalette = runCatching {
                 root.optJSONObject("customPalette")?.let(::paletteFromJson)
             }.getOrNull(),

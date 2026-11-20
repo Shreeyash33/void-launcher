@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Warm paper tone matching the light scheme, used only for the startup frame. -->
-    <color name="void_window_background">#F6F3ED</color>
+    <color name="void_window_background">#0B0B0D</color>
 </resources>

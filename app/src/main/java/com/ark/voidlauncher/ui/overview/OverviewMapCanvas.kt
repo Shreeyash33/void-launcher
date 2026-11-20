@@ -11,8 +11,10 @@ import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.SwipeDirection
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
 
@@ -20,20 +22,25 @@ import kotlin.math.sqrt
  * Shared geometry and edge-rendering helpers for the bird's-eye page map.
  *
  * The map is laid out on an abstract grid: a page at `(coordX, coordY)` occupies
- * one [OverviewStride] slot, with X growing right and Y growing up (the caller
- * inverts screen Y when computing cell centres). All values
- * here are derived from theme tokens at the call site so dark/light/custom themes
- * need no changes in this file.
+ * one portrait slot, with X growing right and Y growing up (the caller inverts
+ * screen Y when computing cell centres). Page tiles and `+` previews share the
+ * same 16:9 height:width ratio so the map reads like a collection of phones.
+ * All values here are derived from theme tokens at the call site so dark/light/
+ * custom themes need no changes in this file.
  */
 
-/** Cell edge length at 1x zoom. */
-internal val OverviewCellSize: Dp = 140.dp
+/** Page tile height at 1x zoom. */
+internal val OverviewCellHeight: Dp = 140.dp
+
+/** Page tile width at 1x zoom: 9 units wide for every 16 units tall. */
+internal val OverviewCellWidth: Dp = OverviewCellHeight * 9f / 16f
 
 /** Breathing room between neighbouring cells. */
 internal val OverviewCellGap: Dp = 28.dp
 
 /** Distance between adjacent cell centres at 1x zoom. */
-internal val OverviewStride: Dp = OverviewCellSize + OverviewCellGap
+internal val OverviewStrideX: Dp = OverviewCellWidth + OverviewCellGap
+internal val OverviewStrideY: Dp = OverviewCellHeight + OverviewCellGap
 
 internal const val OverviewMinScale: Float = 0.35f
 internal const val OverviewMaxScale: Float = 2.5f
@@ -55,22 +62,23 @@ internal fun overviewOutgoing(edges: List<EdgeInfo>): Map<Long, Set<SwipeDirecti
  * here" rather than as a missing render.
  */
 internal fun DrawScope.drawOverviewGrid(
-    stridePx: Float,
+    strideXPx: Float,
+    strideYPx: Float,
     cols: Int,
     rows: Int,
     color: Color,
 ) {
     val stroke = 1.dp.toPx()
-    val dashes = PathEffect.dashPathEffect(floatArrayOf(6f, 12f), 0f)
-    val width = cols * stridePx
-    val height = rows * stridePx
+    val dashes = PathEffect.dashPathEffect(floatArrayOf(8f, 10f), 0f)
+    val width = cols * strideXPx
+    val height = rows * strideYPx
 
     for (col in 0..cols) {
-        val x = col * stridePx
+        val x = col * strideXPx
         drawLine(color, Offset(x, 0f), Offset(x, height), stroke, pathEffect = dashes)
     }
     for (row in 0..rows) {
-        val y = row * stridePx
+        val y = row * strideYPx
         drawLine(color, Offset(0f, y), Offset(width, y), stroke, pathEffect = dashes)
     }
     drawRect(
@@ -92,16 +100,16 @@ internal fun DrawScope.drawOverviewEdges(
     edges: List<EdgeInfo>,
     centers: Map<Long, Offset>,
     currentPageId: Long,
-    cellSizePx: Float,
+    cellWidthPx: Float,
+    cellHeightPx: Float,
     highlightColor: Color,
     edgeColor: Color,
 ) {
     val highlightWidth = 3.dp.toPx()
     val normalWidth = 1.5.dp.toPx()
     val arrowLength = 10.dp.toPx()
-    val startInset = cellSizePx / 2f + 2.dp.toPx()
-    val endInset = cellSizePx / 2f + 6.dp.toPx()
-    val halfCell = cellSizePx / 2f
+    val halfWidth = cellWidthPx / 2f
+    val halfHeight = cellHeightPx / 2f
 
     edges.forEach { edge ->
         val from = centers[edge.fromPageId] ?: return@forEach
@@ -110,10 +118,21 @@ internal fun DrawScope.drawOverviewEdges(
         val dx = to.x - from.x
         val dy = to.y - from.y
         val distance = sqrt(dx * dx + dy * dy)
-        if (distance <= startInset + endInset) return@forEach
+        if (distance == 0f) return@forEach
 
         val ux = dx / distance
         val uy = dy / distance
+        // Distance from the cell centre to its border along this ray. Portrait
+        // tiles need a different inset horizontally and vertically.
+        val borderDistance = when {
+            abs(ux) < 0.0001f -> halfHeight
+            abs(uy) < 0.0001f -> halfWidth
+            else -> min(halfWidth / abs(ux), halfHeight / abs(uy))
+        }
+        val startInset = borderDistance + 2.dp.toPx()
+        val endInset = borderDistance + 6.dp.toPx()
+        if (distance <= startInset + endInset) return@forEach
+
         val start = Offset(from.x + ux * startInset, from.y + uy * startInset)
         val tip = Offset(to.x - ux * endInset, to.y - uy * endInset)
 
@@ -139,6 +158,10 @@ internal fun DrawScope.drawOverviewEdges(
 
         // A small dot at the source makes the direction of travel unambiguous even
         // when the two cells are close together.
-        drawCircle(color = color, radius = stroke * 1.6f, center = from + Offset(ux * halfCell, uy * halfCell))
+        drawCircle(
+            color = color,
+            radius = stroke * 1.6f,
+            center = from + Offset(ux * borderDistance, uy * borderDistance),
+        )
     }
 }

@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
@@ -45,7 +46,8 @@ import kotlin.math.roundToInt
 @Composable
 internal fun PageCell(
     center: Offset,
-    cellSizePx: Float,
+    cellWidthPx: Float,
+    cellHeightPx: Float,
     coordLabel: String,
     isHome: Boolean,
     isCurrent: Boolean,
@@ -80,11 +82,11 @@ internal fun PageCell(
         modifier = Modifier
             .offset {
                 IntOffset(
-                    (center.x - cellSizePx / 2f).roundToInt(),
-                    (center.y - cellSizePx / 2f).roundToInt(),
+                    (center.x - cellWidthPx / 2f).roundToInt(),
+                    (center.y - cellHeightPx / 2f).roundToInt(),
                 )
             }
-            .size(OverviewCellSize)
+            .size(OverviewCellWidth, OverviewCellHeight)
             .clip(shape)
             .background(containerColor)
             .border(
@@ -93,7 +95,7 @@ internal fun PageCell(
                 shape = shape,
             )
             .clickable(onClick = onClick)
-            .padding(8.dp),
+            .padding(6.dp),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (showCoordDetail) {
@@ -132,7 +134,7 @@ internal fun PageCell(
 
             Spacer(Modifier.weight(1f))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 SwipeDirection.entries.forEach { direction ->
                     val available = direction in outgoing
                     OverviewArrow(
@@ -149,11 +151,9 @@ internal fun PageCell(
     }
 }
 
-/** Height of a next-page preview. Portrait 16:9 height:width, like a phone. */
-internal val PreviewHeight: Dp = OverviewCellSize
-
-/** Width of a next-page preview: 9 units wide for every 16 units tall. */
-internal val PreviewWidth: Dp = OverviewCellSize * 9f / 16f
+/** Page previews share the exact geometry of real page tiles. */
+internal val PreviewHeight: Dp = OverviewCellHeight
+internal val PreviewWidth: Dp = OverviewCellWidth
 
 /**
  * A tappable ghost page at a coordinate where a new page could be created.
@@ -200,12 +200,58 @@ internal fun PlacementPreviewCell(
 }
 
 /**
+ * Faint arrow that toggles the navigation link from this page to the neighbour it
+ * was spawned from. Bright means the edge exists; dim means the page is isolated.
+ * It sits above the page tiles in the map layer so its own click does not also
+ * select the page.
+ */
+@Composable
+internal fun SpawnLinkToggle(
+    center: Offset,
+    cellWidthPx: Float,
+    cellHeightPx: Float,
+    direction: SwipeDirection,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val size = 18.dp
+    val sizePx = with(LocalDensity.current) { size.toPx() }
+    val inset = with(LocalDensity.current) { 2.dp.toPx() }
+    val x = (center.x + cellWidthPx / 2f - sizePx - inset).roundToInt()
+    val y = (center.y - cellHeightPx / 2f + inset).roundToInt()
+    val arrowColor = if (enabled) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+    }
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(x, y) }
+            .size(size)
+            .clip(RoundedCornerShape(9.dp))
+            .background(
+                MaterialTheme.colorScheme.surface.copy(
+                    alpha = if (enabled) 0.95f else 0.6f,
+                ),
+            )
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        OverviewArrow(direction = direction, color = arrowColor, size = 10.dp)
+    }
+}
+
+/**
  * Small direction cue drawn as geometry. Unicode arrows render as unrelated
  * characters on devices whose monospace face lacks them, so the map uses the
  * same font-independent approach as the home HUD.
  */
 @Composable
-private fun OverviewArrow(direction: SwipeDirection, color: Color) {
+internal fun OverviewArrow(
+    direction: SwipeDirection,
+    color: Color,
+    size: Dp = 10.dp,
+) {
     val rotation = when (direction) {
         SwipeDirection.UP -> 0f
         SwipeDirection.RIGHT -> 90f
@@ -213,7 +259,7 @@ private fun OverviewArrow(direction: SwipeDirection, color: Color) {
         SwipeDirection.LEFT -> 270f
     }
     Canvas(
-        modifier = Modifier.size(14.dp),
+        modifier = Modifier.size(size),
         contentDescription = "SWIPE ${direction.name}",
     ) {
         val stroke = 1.5.dp.toPx()

@@ -235,6 +235,7 @@ class MainActivity : ComponentActivity() {
                         orientation = orientationMode.name,
                         customPalette = customPalette,
                         backgrounds = backedUpBackgrounds,
+                        showCoordinateDetail = showCoordinateDetail,
                     )
                     message = runCatching {
                         BackupManager.writeToUri(context, uri, payload)
@@ -264,6 +265,7 @@ class MainActivity : ComponentActivity() {
                                     OrientationMode.valueOf(payload.orientation)
                                 }.getOrDefault(OrientationMode.PORTRAIT)
                                 prefs.setOrientation(orientation)
+                                prefs.setShowCoordinateDetail(payload.showCoordinateDetail)
                                 payload.customPalette?.let { prefs.setCustomPalette(it) }
                             }
                             // P10 backgrounds are restored by fresh page coordinates because
@@ -645,6 +647,7 @@ class MainActivity : ComponentActivity() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
                         .onGloballyPositioned { rootSize = it.size }
                         .pointerInput(Unit) {
                             // The picker's long press swaps screens while the
@@ -882,6 +885,27 @@ class MainActivity : ComponentActivity() {
                                     if (id == null) {
                                         message = "PAGE ALREADY EXISTS OR OUT OF RANGE"
                                     }
+                                }
+                            },
+                            onToggleEdge = { childId, parentId, direction, enable ->
+                                val change = if (enable) {
+                                    EdgeChange.SetEdge(EdgeInfo(childId, direction, parentId))
+                                } else {
+                                    EdgeChange.RemoveEdge(childId, direction)
+                                }
+                                if (EditorValidation.edgeChangeIsSafe(
+                                        pages, edges, homePageId, change,
+                                    )
+                                ) {
+                                    scope.launch {
+                                        if (enable) {
+                                            repository.setEdge(childId, direction, parentId)
+                                        } else {
+                                            repository.removeEdge(childId, direction)
+                                        }
+                                    }
+                                } else {
+                                    message = "THAT WOULD STRAND A PAGE"
                                 }
                             },
                             showCoordinateDetail = showCoordinateDetail,

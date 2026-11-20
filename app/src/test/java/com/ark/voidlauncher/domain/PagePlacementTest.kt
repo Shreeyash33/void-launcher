@@ -69,4 +69,26 @@ class PagePlacementTest {
         assertEquals(candidates.size, candidates.toSet().size)
         assertEquals(1 to 0, candidates.first { it.first == 1 })
     }
+
+    @Test
+    fun `spawn neighbour uses stored direction deltas`() {
+        val origin = page(0, 0, 1)
+        val child = page(1, 0, 2)
+        val pages = listOf(origin, child)
+
+        val (neighbour, direction) = spawnNeighbour(pages, child)!!
+        assertEquals(origin.pageId, neighbour.pageId)
+        assertEquals(SwipeDirection.LEFT, direction)
+
+        val above = page(0, -1, 3)
+        assertEquals(
+            SwipeDirection.DOWN,
+            spawnNeighbour(pages + above, above)!!.second,
+        )
+    }
+
+    @Test
+    fun `isolated page has no spawn neighbour`() {
+        assert(spawnNeighbour(listOf(page(0, 0, 1)), page(5, 5, 2)) == null)
+    }
 }

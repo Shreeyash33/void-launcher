@@ -35,7 +35,9 @@ import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.nextPageCandidates
+import com.ark.voidlauncher.domain.spawnNeighbour
 
 /**
  * Full-screen bird's-eye view of the page graph.
@@ -62,6 +64,7 @@ fun PageOverview(
     onWidgets: () -> Unit,
     onPageManagement: () -> Unit,
     onAddPage: (Int, Int) -> Unit = { _, _ -> },
+    onToggleEdge: (Long, Long, SwipeDirection, Boolean) -> Unit = { _, _, _, _ -> },
     showCoordinateDetail: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
@@ -72,8 +75,10 @@ fun PageOverview(
             .background(MaterialTheme.colorScheme.background),
     ) {
         val density = LocalDensity.current
-        val stridePx = with(density) { OverviewStride.toPx() }
-        val cellSizePx = with(density) { OverviewCellSize.toPx() }
+        val strideXPx = with(density) { OverviewStrideX.toPx() }
+        val strideYPx = with(density) { OverviewStrideY.toPx() }
+        val cellWidthPx = with(density) { OverviewCellWidth.toPx() }
+        val cellHeightPx = with(density) { OverviewCellHeight.toPx() }
         val previewWidthPx = with(density) { PreviewWidth.toPx() }
         val previewHeightPx = with(density) { PreviewHeight.toPx() }
         val viewportCenter = Offset(constraints.maxWidth * 0.5f, constraints.maxHeight * 0.5f)
@@ -87,22 +92,28 @@ fun PageOverview(
 
         // Map-space centre (px) of each page. Shifting by the minimum coordinate
         // keeps every cell inside a Canvas with non-negative origin.
-        val centers = remember(pages, minCoordX, maxCoordY, stridePx) {
+        val centers = remember(pages, minCoordX, maxCoordY, strideXPx, strideYPx) {
             pages.associate { page ->
                 val mapX = page.coordX - minCoordX + OverviewMarginCells
                 // Screen Y grows down; inverting the coordinate puts (0,1) above (0,0).
                 val mapY = maxCoordY - page.coordY + OverviewMarginCells
-                page.pageId to Offset((mapX + 0.5f) * stridePx, (mapY + 0.5f) * stridePx)
+                page.pageId to Offset(
+                    (mapX + 0.5f) * strideXPx,
+                    (mapY + 0.5f) * strideYPx,
+                )
             }
         }
 
         // Ghost tiles use the same lattice maths as real pages so they line up with
         // the dotted grid and never drift when the map is panned or zoomed.
-        val previewCenters = remember(pages, minCoordX, maxCoordY, stridePx) {
+        val previewCenters = remember(pages, minCoordX, maxCoordY, strideXPx, strideYPx) {
             nextPageCandidates(pages).map { (x, y) ->
                 val mapX = x - minCoordX + OverviewMarginCells
                 val mapY = maxCoordY - y + OverviewMarginCells
-                (x to y) to Offset((mapX + 0.5f) * stridePx, (mapY + 0.5f) * stridePx)
+                (x to y) to Offset(
+                    (mapX + 0.5f) * strideXPx,
+                    (mapY + 0.5f) * strideYPx,
+                )
             }
         }
 
@@ -116,6 +127,18 @@ fun PageOverview(
 
         val counts = remember(items) { overviewItemCounts(items) }
         val outgoing = remember(edges) { overviewOutgoing(edges) }
+        val spawnLinks = remember(pages, edges) {
+            pages.mapNotNull { page ->
+                spawnNeighbour(pages, page)?.let { (parent, direction) ->
+                    val enabled = edges.any {
+                        it.fromPageId == page.pageId &&
+                            it.swipeDirection == direction &&
+                            it.toPageId == parent.pageId
+                    }
+                    SpawnLink(page.pageId, parent.pageId, direction, enabled)
+                }
+            }
+        }
         val edgeHighlightColor = MaterialTheme.colorScheme.primary
         val edgeColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)
         val gridColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
@@ -140,7 +163,7 @@ fun PageOverview(
         ) {
             Box(
                 modifier = Modifier
-                    .size(OverviewStride * mapCols, OverviewStride * mapRows)
+                    .size(OverviewStrideX * mapCols, OverviewStrideY * mapRows)
                     .graphicsLayer {
                         transformOrigin = TransformOrigin(0f, 0f)
                         scaleX = scale
@@ -151,7 +174,8 @@ fun PageOverview(
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     drawOverviewGrid(
-                        stridePx = stridePx,
+                        strideXPx = strideXPx,
+                        strideYPx = strideYPx,
                         cols = mapCols,
                         rows = mapRows,
                         color = gridColor,
@@ -160,7 +184,8 @@ fun PageOverview(
                         edges = edges,
                         centers = centers,
                         currentPageId = currentPageId,
-                        cellSizePx = cellSizePx,
+                        cellWidthPx = cellWidthPx,
+                        cellHeightPx = cellHeightPx,
                         highlightColor = edgeHighlightColor,
                         edgeColor = edgeColor,
                     )
@@ -169,7 +194,8 @@ fun PageOverview(
                 pages.forEach { page ->
                     PageCell(
                         center = centers.getValue(page.pageId),
-                        cellSizePx = cellSizePx,
+                        cellWidthPx = cellWidthPx,
+                        cellHeightPx = cellHeightPx,
                         coordLabel = "${page.coordX},${page.coordY}",
                         isHome = page.pageId == homePageId,
                         isCurrent = page.pageId == currentPageId,
@@ -186,6 +212,24 @@ fun PageOverview(
                         previewWidthPx = previewWidthPx,
                         previewHeightPx = previewHeightPx,
                         onClick = { onAddPage(coord.first, coord.second) },
+                    )
+                }
+
+                spawnLinks.forEach { link ->
+                    SpawnLinkToggle(
+                        center = centers.getValue(link.childPageId),
+                        cellWidthPx = cellWidthPx,
+                        cellHeightPx = cellHeightPx,
+                        direction = link.direction,
+                        enabled = link.enabled,
+                        onClick = {
+                            onToggleEdge(
+                                link.childPageId,
+                                link.parentPageId,
+                                link.direction,
+                                !link.enabled,
+                            )
+                        },
                     )
                 }
             }
@@ -237,3 +281,11 @@ fun PageOverview(
         }
     }
 }
+
+/** One derived navigation link between a page and the neighbour that spawned it. */
+private data class SpawnLink(
+    val childPageId: Long,
+    val parentPageId: Long,
+    val direction: SwipeDirection,
+    val enabled: Boolean,
+)

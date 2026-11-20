@@ -86,6 +86,8 @@ fun CustomThemeEditorSheet(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         title = {
             Text(
                 text = "EDIT CUSTOM THEME",

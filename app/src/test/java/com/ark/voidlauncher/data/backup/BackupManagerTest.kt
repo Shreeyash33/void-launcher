@@ -14,6 +14,7 @@ import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.TextAlign
 import com.ark.voidlauncher.domain.TextTransform
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -102,6 +103,7 @@ class BackupManagerTest {
                 gradientAngle = 90f,
             ),
         ),
+        showCoordinateDetail = false,
     )
 
     /**
@@ -223,6 +225,7 @@ class BackupManagerTest {
         assertEquals("PORTRAIT", decoded.orientation)
         assertNull(decoded.customPalette)
         assertTrue(decoded.backgrounds.isEmpty())
+        assertTrue(decoded.showCoordinateDetail)
     }
 
     @Test

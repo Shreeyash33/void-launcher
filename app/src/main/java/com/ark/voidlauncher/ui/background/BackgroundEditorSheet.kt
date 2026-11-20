@@ -128,6 +128,8 @@ fun BackgroundEditorSheet(
 
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         title = {
             Column {
                 Text(

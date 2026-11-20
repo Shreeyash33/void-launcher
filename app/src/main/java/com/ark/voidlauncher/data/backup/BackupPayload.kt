@@ -31,4 +31,5 @@ data class BackupPayload(
     val orientation: String = "PORTRAIT",
     val customPalette: CustomPalette? = null,
     val backgrounds: List<BackedUpBackground> = emptyList(),
+    val showCoordinateDetail: Boolean = true,
 )

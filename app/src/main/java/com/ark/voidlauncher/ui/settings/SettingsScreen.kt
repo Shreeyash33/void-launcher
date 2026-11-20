@@ -2,6 +2,7 @@ package com.ark.voidlauncher.ui.settings
 
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -83,6 +84,7 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = 28.dp, vertical = 40.dp),
     ) {
         Text(
@@ -278,6 +280,8 @@ private fun SettingsConfirmationDialog(
     val isImport = kind == SettingsConfirmation.IMPORT
     AlertDialog(
         onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
         title = {
             Text(
                 text = if (isImport) "IMPORT BACKUP?" else "ENABLE ACCESSIBILITY?",
