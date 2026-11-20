@@ -76,6 +76,16 @@ Status: **frozen for implementation**. This supersedes the numeric-first placeme
 30. The custom theme editor gets a color modal with hex input, RGBA numeric input and a hue wheel, opened by a small toggle button and closed with a cross.
 31. Modals on the settings surface use the active theme's surface colour (no white background in dark theme).
 
+### Page creation, movement and home (2026-11-20)
+
+32. Tapping a `+` placement preview on the map opens a small themed prompt asking `WIDGET PAGE` or `APP DRAWER PAGE`. There is no coordinate typing. The chosen type is stored on the created page. Multiple `APP_DRAWER` pages are allowed.
+33. Long-pressing a page tile on the map selects it for dragging. Dragging moves the page to any empty in-bounds lattice cell that has at least one existing page in one of the four orthogonal directions. Dropping in an isolated cell is rejected.
+34. When a page is moved, all edges where it is the source or destination are removed, then one default outgoing edge is created from the moved page to the first existing neighbour in priority order: **LEFT**, **RIGHT**, **TOP/UP**, **BOTTOM/DOWN**. The user must configure any additional swipe directions afterward.
+35. A newly created page also gets one default outgoing edge using the same LEFT, RIGHT, UP, DOWN priority. This replaces the old UP, RIGHT, DOWN, LEFT spawn priority.
+36. The swipe-direction control on the map exposes all four arrows for every page, superseding the single spawn-neighbour arrow in decision 29. An arrow is disabled and non-toggleable when there is no page in that orthogonal direction; otherwise it toggles the outgoing edge in that direction.
+37. While a page is selected by long-press, the map bottom bar gains a `SET HOME` / `HOME` toggle. Tapping it makes that page the HOME page at its current coordinates; the previous HOME page's stored type becomes `WIDGET`. HOME is derived from the single home-coordinate preference, can be anywhere on the map, and the Android Home button therefore opens the selected page. An `APP_DRAWER` page cannot become HOME.
+38. The prompt, drag selection, and home toggle use theme surface/content colours; never a hardcoded white dialog on a dark theme.
+
 ## Data implications
 
 - Add a persisted `pageType` to pages and a persisted `widgetKind` plus app-list membership to grid items.
