@@ -300,7 +300,11 @@ class MainActivity : ComponentActivity() {
                         }.getOrDefault(OrientationMode.PORTRAIT)
                         prefs.setOrientation(orientation)
                         prefs.setShowCoordinateDetail(payload.showCoordinateDetail)
-                        payload.customPalette?.let { prefs.setCustomPalette(it) }
+                        if (payload.customPalette != null) {
+                            prefs.setCustomPalette(payload.customPalette)
+                        } else {
+                            prefs.clearCustomPalette()
+                        }
                     }
                     // P10 backgrounds are restored by fresh page coordinates because
                     // restore() regenerates all Room page ids.
@@ -1349,6 +1353,7 @@ private suspend fun restoreBackgrounds(
 ): Int {
     // An empty array is an intentional "clear all backgrounds" instruction.
     var skipped = 0
+    val keptTokens = HashSet<String>()
     val restored = entries.mapNotNull { entry ->
         val scope = runCatching { BackgroundScope.valueOf(entry.scope) }.getOrNull()
             ?: run { skipped++; return@mapNotNull null }
@@ -1382,11 +1387,14 @@ private suspend fun restoreBackgrounds(
                 false
             } else {
                 repository.importImage(token, bytes)
+                keptTokens.add(token)
                 true
             }
         }.getOrDefault(false)
         if (!ok) skipped++
     }
+    // Any image not carried by this backup is stale once replace-style restore completes.
+    runCatching { repository.deleteUnusedImages(keptTokens) }
     return skipped
 }
 

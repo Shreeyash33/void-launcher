@@ -119,6 +119,26 @@ class BackgroundRepository(
         }
     }
 
+    /** Deletes image files whose token is not in [keepTokens]. */
+    suspend fun deleteUnusedImages(keepTokens: Set<String>) {
+        withContext(Dispatchers.IO) {
+            val dir = File(context.filesDir, IMAGE_DIR)
+            val suffix = ".img"
+            runCatching {
+                val files = dir.listFiles() ?: return@runCatching
+                files.forEach { file ->
+                    if (!file.isFile) return@forEach
+                    val name = file.name
+                    if (!name.endsWith(suffix)) return@forEach
+                    val token = name.removeSuffix(suffix)
+                    if (token !in keepTokens) {
+                        runCatching { file.delete() }
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * Restricts tokens to a flat filename so a caller can never escape the image
      * directory via path traversal. UUIDs from the SAF flow pass unchanged.

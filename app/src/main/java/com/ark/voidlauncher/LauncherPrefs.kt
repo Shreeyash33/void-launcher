@@ -254,6 +254,22 @@ class LauncherPrefs(private val context: Context) {
         }
     }
 
+    /** Removes all persisted palette overrides so the built-in default applies again. */
+    suspend fun clearCustomPalette() {
+        context.dataStore.edit { prefs ->
+            listOf(
+                CUSTOM_BACKGROUND,
+                CUSTOM_SURFACE,
+                CUSTOM_SURFACE_VARIANT,
+                CUSTOM_ON_BACKGROUND,
+                CUSTOM_ON_SURFACE,
+                CUSTOM_PRIMARY,
+                CUSTOM_SECONDARY,
+                CUSTOM_OUTLINE,
+            ).forEach { prefs.remove(it) }
+        }
+    }
+
     /** Raw string helpers for backup import/export (invalid values are ignored). */
     suspend fun restorePreferences(theme: String?, orientation: String?, palette: CustomPalette?) {
         context.dataStore.edit { prefs ->

@@ -3,6 +3,7 @@ package com.ark.voidlauncher.data.repository
 import androidx.room.withTransaction
 import com.ark.voidlauncher.LauncherPrefs
 import com.ark.voidlauncher.ThemeMode
+import com.ark.voidlauncher.data.backup.BackupItemNormalizer
 import com.ark.voidlauncher.data.backup.BackupPayload
 import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.BuiltInWidgets
@@ -599,7 +600,8 @@ class LauncherRepository(
                 )
             }
 
-            payload.items.forEach { item ->
+            payload.items.forEach { rawItem ->
+                val item = BackupItemNormalizer.normalize(rawItem)
                 val pageId = database.pageDao().getByCoordOnce(
                     item.pageCoordX, item.pageCoordY,
                 )?.pageId
