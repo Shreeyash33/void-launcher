@@ -128,6 +128,8 @@ A green Gradle build is necessary but not sufficient; swipe feel, widget resizin
 
 - **Theme foundation before homepage UI (user requirement, 2026-11-19):** When the homepage UI is assembled, dark and light themes must be in place **first**, with a deliberate slot reserved for a future custom theme editor. `ui/theme/Theme.kt` already has `SYSTEM` / `DARK` / `LIGHT` and two color schemes; before integrating the P2 canvas the lead must audit it so every homepage surface uses `MaterialTheme.colorScheme` / `MaterialTheme.typography` tokens (no hardcoded colors), and add an extension point for user-defined color palettes. The custom **editor** itself is deferred — do not build it in P1-P3. Homepage components built by subagents must consume theme tokens only.
 
+- **Page-label widget (user request, 2026-11-21):** The fixed top-centre title/coordinate badge in `ui/hud/NavigationHud.kt` (`PAGE 0,0` / `HOME`) should become a normal built-in widget so the user can move, resize, edit or delete it like `CLOCK` and `APP LIST`. Keep the direction indicators and wall flash in `NavigationHud`; only the title/coordinate badge moves into the grid. Scope for the later widget batch: add a `PAGE_INFO` value to `BuiltInWidgetKind`, render `displayTitle` + coordinates + HOME tag from the current `PageInfo`, add it to `BuiltInWidgetPickerScreen`, decide whether fresh installs seed one on HOME and whether omitting it suppresses the fixed badge, extend `BackupManager`/`BackupValidator` enum handling, and update `web_editor/WEB_EDITOR_HANDOFF.md` built-in-widget list. Do not start this inside the screen-cleanup slice.
+
 ---
 
 ## 6. Resolved and remaining questions

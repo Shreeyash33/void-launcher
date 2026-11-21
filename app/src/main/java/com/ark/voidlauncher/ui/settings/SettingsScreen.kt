@@ -31,7 +31,7 @@ import com.ark.voidlauncher.ThemeMode
 import com.ark.voidlauncher.domain.OrientationMode
 import com.ark.voidlauncher.ui.theme.GlassPanel
 
-private enum class SettingsConfirmation { NONE, ACCESSIBILITY, IMPORT, RESET }
+private enum class SettingsConfirmation { NONE, ACCESSIBILITY, RESET }
 
 /**
  * Text-first settings surface. Everything except the search drawer's query is
@@ -52,8 +52,7 @@ fun SettingsScreen(
     onEditItems: () -> Unit,
     onEditTypography: () -> Unit,
     onAddWidget: () -> Unit,
-    onExport: () -> Unit,
-    onImport: () -> Unit,
+    onOpenBackup: () -> Unit,
     onResetAll: () -> Unit,
     onAccessibilityToggle: (Boolean) -> Unit,
     orientationMode: OrientationMode,
@@ -74,7 +73,6 @@ fun SettingsScreen(
             onConfirm = {
                 when (pending) {
                     SettingsConfirmation.ACCESSIBILITY -> onAccessibilityToggle(true)
-                    SettingsConfirmation.IMPORT -> onImport()
                     SettingsConfirmation.RESET -> onResetAll()
                     SettingsConfirmation.NONE -> Unit
                 }
@@ -189,10 +187,9 @@ fun SettingsScreen(
             Spacer(Modifier.height(28.dp))
 
             SectionLabel("BACKUP")
-            SettingsAction("EXPORT", onExport)
-            SettingsAction("IMPORT") { confirmation = SettingsConfirmation.IMPORT }
+            SettingsAction("BACKUP & RESTORE", onOpenBackup)
             Text(
-                text = "EXPORT WRITES A BACKUP FILE. IMPORT REPLACES THE CURRENT LAYOUT.",
+                text = "EXPORT AND IMPORT LIVE IN A DEDICATED SCREEN. IMPORT REPLACES THE CURRENT LAYOUT.",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
                 modifier = Modifier.padding(vertical = 4.dp),
@@ -291,14 +288,10 @@ private fun SettingsConfirmationDialog(
     onConfirm: () -> Unit,
 ) {
     val title = when (kind) {
-        SettingsConfirmation.IMPORT -> "IMPORT BACKUP?"
         SettingsConfirmation.RESET -> "RESET EVERYTHING?"
         else -> "ENABLE ACCESSIBILITY?"
     }
     val body = when (kind) {
-        SettingsConfirmation.IMPORT ->
-            "Importing replaces the current pages, edges, items, and customizations. " +
-                "Export first if you want to keep them."
         SettingsConfirmation.RESET ->
             "This deletes all pages, widgets, backgrounds, pinned apps and customizations. " +
                 "The default 5-page map will be restored."
@@ -307,7 +300,6 @@ private fun SettingsConfirmationDialog(
                 "the service stays off until you switch it on there."
     }
     val confirmLabel = when (kind) {
-        SettingsConfirmation.IMPORT -> "IMPORT"
         SettingsConfirmation.RESET -> "RESET"
         else -> "OPEN SETTINGS"
     }

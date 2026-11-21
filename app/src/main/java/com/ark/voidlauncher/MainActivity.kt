@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -128,7 +129,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.UUID
 
-private enum class Screen { HOME, DRAWER, SETTINGS, WIDGET_PICKER, BACKUP }
+private enum class Screen { HOME, SETTINGS, WIDGET_PICKER, BACKUP }
 private enum class Editor { NONE, PAGES, ITEMS, TYPOGRAPHY }
 
 class MainActivity : ComponentActivity() {
@@ -179,6 +180,7 @@ class MainActivity : ComponentActivity() {
             var currentPageId by remember { mutableLongStateOf(VoidDatabase.ORIGIN_PAGE_ID) }
             val pageHistory = remember { PageHistory() }
             var screen by remember { mutableStateOf(Screen.HOME) }
+            val screenHistory = remember { mutableStateListOf<Screen>() }
             var editor by remember { mutableStateOf(Editor.NONE) }
             var canvasEditing by remember { mutableStateOf(false) }
             var selectedCanvasItemId by remember { mutableStateOf<Long?>(null) }
@@ -484,6 +486,25 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            /** Record where a non-HOME screen was opened from so BACK can unwind it. */
+            fun navigateTo(target: Screen) {
+                if (target == screen) return
+                if (target == Screen.HOME) {
+                    screenHistory.clear()
+                } else {
+                    screenHistory.add(screen)
+                }
+                screen = target
+            }
+
+            fun goBackScreen() {
+                screen = if (screenHistory.isEmpty()) {
+                    Screen.HOME
+                } else {
+                    screenHistory.removeAt(screenHistory.lastIndex)
+                }
+            }
+
             BackHandler(
                 enabled = themePicker || gestureEditor || customThemeEditor || backgroundEditor ||
                     overview || resizeItemId != null || pendingWidgetKind != null ||
@@ -510,7 +531,7 @@ class MainActivity : ComponentActivity() {
                         selectedCanvasItemId = null
                     }
                     editor != Editor.NONE -> editor = Editor.NONE
-                    screen != Screen.HOME -> screen = Screen.HOME
+                    screen != Screen.HOME -> goBackScreen()
                     pageHistory.size > 0 -> {
                         // Skip stale ids (e.g. a page deleted before history was pruned).
                         while (pageHistory.size > 0) {
@@ -669,7 +690,7 @@ class MainActivity : ComponentActivity() {
             }
 
             fun openWidgetPicker() {
-                screen = Screen.WIDGET_PICKER
+                navigateTo(Screen.WIDGET_PICKER)
             }
 
             fun acceptBuiltInWidget(kind: BuiltInWidgetKind) {
@@ -683,7 +704,7 @@ class MainActivity : ComponentActivity() {
                     floatingPoint = Offset(rootSize.width / 2f, rootSize.height / 2f)
                 }
                 overview = false
-                screen = Screen.HOME
+                navigateTo(Screen.HOME)
                 canvasEditing = true
                 selectedCanvasItemId = null
                 resizeItemId = null
@@ -781,7 +802,7 @@ class MainActivity : ComponentActivity() {
                     GestureTarget.MAP -> overview = true
                     GestureTarget.SETTINGS -> {
                         exitCanvasEditor()
-                        screen = Screen.SETTINGS
+                        navigateTo(Screen.SETTINGS)
                     }
                     GestureTarget.APP_DRAWER -> {
                         exitCanvasEditor()
@@ -976,7 +997,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenSettings = {
                                         exitCanvasEditor()
-                                        screen = Screen.SETTINGS
+                                        navigateTo(Screen.SETTINGS)
                                     },
                                     onEditItems = {
                                         exitCanvasEditor()
@@ -1024,31 +1045,17 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        Screen.DRAWER -> AppDrawerOverlay(
-                            apps = apps,
-                            pinned = pinned,
-                            favorites = customizations.filter { it.isFavorite }
-                                .map { it.packageName }.toSet(),
-                            hidden = customizations.filter { it.isHidden }
-                                .map { it.packageName }.toSet(),
-                            onBack = { screen = Screen.HOME },
-                            onLaunch = { appRepository.launch(it) },
-                            onTogglePin = { scope.launch { prefs.togglePinned(it) } },
-                            onCustomize = { editor = Editor.TYPOGRAPHY },
-                        )
-
                         Screen.SETTINGS -> SettingsSurface(
                             themeMode = themeMode,
                             versionName = versionName,
                             accessibilityEnabled = accessibilityEnabled,
-                            onBack = { screen = Screen.HOME },
+                            onBack = { goBackScreen() },
                             onThemeChange = { scope.launch { prefs.setTheme(it) } },
                             onEditPages = { editor = Editor.PAGES },
                             onEditItems = { editor = Editor.ITEMS },
                             onEditTypography = { editor = Editor.TYPOGRAPHY },
                             onAddWidget = ::openWidgetPicker,
-                            onExport = { exportLauncher.launch("voidlauncher-backup.json") },
-                            onImport = { importLauncher.launch(arrayOf("application/json")) },
+                            onOpenBackup = { navigateTo(Screen.BACKUP) },
                             onResetAll = {
                                 scope.launch {
                                     runCatching { repository.resetToDefault() }
@@ -1061,7 +1068,7 @@ class MainActivity : ComponentActivity() {
                                             customThemeEditor = false
                                             backgroundEditor = false
                                             backgroundDraft = null
-                                            screen = Screen.HOME
+                                            navigateTo(Screen.HOME)
                                             canvasEditing = false
                                             selectedCanvasItemId = null
                                             resizeItemId = null
@@ -1105,12 +1112,12 @@ class MainActivity : ComponentActivity() {
                             status = message,
                             onExport = { exportLauncher.launch("voidlauncher-backup.json") },
                             onImport = { importLauncher.launch(arrayOf("application/json")) },
-                            onBack = { screen = Screen.SETTINGS },
+                            onBack = { goBackScreen() },
                         )
 
                         Screen.WIDGET_PICKER -> BuiltInWidgetPickerScreen(
                             onLongPress = ::acceptBuiltInWidget,
-                            onBack = { screen = Screen.HOME },
+                            onBack = { goBackScreen() },
                         )
                     }
 
@@ -1130,11 +1137,11 @@ class MainActivity : ComponentActivity() {
                             onThemes = { themePicker = true },
                             onSettings = {
                                 overview = false
-                                screen = Screen.SETTINGS
+                                navigateTo(Screen.SETTINGS)
                             },
                             onWidgets = {
                                 overview = false
-                                screen = Screen.WIDGET_PICKER
+                                navigateTo(Screen.WIDGET_PICKER)
                             },
                             onPageManagement = {
                                 overview = false
