@@ -81,6 +81,7 @@ import com.ark.voidlauncher.domain.PageHistory
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
+import com.ark.voidlauncher.domain.WidgetReference
 import com.ark.voidlauncher.domain.background.BackgroundKind
 import com.ark.voidlauncher.domain.edgeForGesture
 import com.ark.voidlauncher.domain.background.BackgroundResolver
@@ -189,6 +190,7 @@ class MainActivity : ComponentActivity() {
             var customThemeEditor by remember { mutableStateOf(false) }
             var backgroundEditor by remember { mutableStateOf(false) }
             var backgroundDraft by remember { mutableStateOf<PageBackground?>(null) }
+            val pendingRebindItemId = remember { mutableStateOf<Long?>(null) }
             val accessibilityEnabled = remember { AccessibilityBridge.isEnabled(context) }
 
             val exportLauncher = rememberLauncherForActivityResult(
@@ -241,7 +243,10 @@ class MainActivity : ComponentActivity() {
                                     item.itemType == GridItemType.WIDGET &&
                                     item.widgetKind == null
                                 ) {
-                                    item.referenceId.removePrefix("placeholder:")
+                                    val raw = item.referenceId.removePrefix(WidgetReference.PLACEHOLDER_PREFIX)
+                                    raw.toIntOrNull()?.let { id ->
+                                        widgetController.providerInfo(id)?.provider?.flattenToString()
+                                    } ?: raw
                                 } else {
                                     item.referenceId
                                 },
@@ -343,6 +348,28 @@ class MainActivity : ComponentActivity() {
                 } else {
                     widgetController.deleteWidget(id)
                     message = "WIDGET BIND CANCELLED"
+                }
+            }
+
+            val rebindLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.StartActivityForResult(),
+            ) { result ->
+                val itemId = pendingRebindItemId.value
+                pendingRebindItemId.value = null
+                if (itemId == null) return@rememberLauncherForActivityResult
+                val id = result.data?.getIntExtra(
+                    AppWidgetManager.EXTRA_APPWIDGET_ID,
+                    AppWidgetManager.INVALID_APPWIDGET_ID,
+                ) ?: AppWidgetManager.INVALID_APPWIDGET_ID
+                if (result.resultCode == RESULT_OK && id != AppWidgetManager.INVALID_APPWIDGET_ID) {
+                    scope.launch {
+                        runCatching { repository.rebindWidget(itemId, id) }
+                            .onSuccess { message = "WIDGET REBOUND" }
+                            .onFailure { message = "REBIND FAILED" }
+                    }
+                } else {
+                    widgetController.deleteWidget(id)
+                    message = "WIDGET REBIND CANCELLED"
                 }
             }
 
@@ -684,6 +711,36 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            fun beginRebindWidget(item: GridItemEntity) {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                    message = "WIDGETS REQUIRE ANDROID 8 OR NEWER"
+                    return
+                }
+                val id = widgetController.allocateAppWidgetId()
+                pendingRebindItemId.value = item.itemId
+                val providerName = WidgetReference.portableProvider(item.referenceId)
+                if (providerName != null) {
+                    val provider = ComponentName.unflattenFromString(providerName)
+                    if (provider != null) {
+                        if (widgetController.bindAllowed(id, provider)) {
+                            pendingRebindItemId.value = null
+                            scope.launch {
+                                runCatching { repository.rebindWidget(item.itemId, id) }
+                                    .onSuccess { message = "WIDGET REBOUND" }
+                                    .onFailure { message = "REBIND FAILED" }
+                            }
+                        } else {
+                            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, provider)
+                            rebindLauncher.launch(intent)
+                        }
+                        return
+                    }
+                }
+                rebindLauncher.launch(widgetController.createPickIntent(id))
+            }
+
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (themeMode) {
                 ThemeMode.DARK -> true
@@ -858,6 +915,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     apps = apps,
                                     onRemoveCanvasItem = ::removeCanvasItem,
+                                    onRebindWidget = ::beginRebindWidget,
                                     onExitCanvasEditor = ::exitCanvasEditor,
                                     floatingKind = pendingWidgetKind,
                                     floatingPoint = floatingPoint,
@@ -1497,6 +1555,7 @@ private fun HomeScreen(
     onWidgetAction: (GridItemEntity) -> Unit = {},
     apps: List<AppInfo> = emptyList(),
     onRemoveCanvasItem: (GridItemEntity) -> Unit = {},
+    onRebindWidget: (GridItemEntity) -> Unit = {},
     onExitCanvasEditor: () -> Unit = {},
     floatingKind: BuiltInWidgetKind? = null,
     floatingPoint: Offset? = null,
@@ -1553,8 +1612,12 @@ private fun HomeScreen(
                             )
                         } else {
                             Text(
-                                "WIDGET NEEDS REBIND",
+                                "REBIND WIDGET",
                                 style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .clickable { onRebindWidget(item) }
+                                    .padding(8.dp),
                             )
                         }
                     }

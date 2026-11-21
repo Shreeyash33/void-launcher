@@ -46,4 +46,7 @@ interface GridItemDao {
 
     @Query("DELETE FROM grid_items")
     suspend fun deleteAll()
+
+    @Query("UPDATE grid_items SET referenceId = :referenceId WHERE itemId = :itemId")
+    suspend fun updateReferenceId(itemId: Long, referenceId: String)
 }

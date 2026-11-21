@@ -27,10 +27,12 @@ import com.ark.voidlauncher.domain.isValidPageDestination
 import com.ark.voidlauncher.domain.primaryNeighbour
 import com.ark.voidlauncher.domain.ResetCleanup
 import com.ark.voidlauncher.domain.ResetExecution
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
 
 /** Diagnostics from a backup restore. */
 data class RestoreResult(
@@ -371,6 +373,13 @@ class LauncherRepository(
             widgetKind = kind,
         ),
     )
+
+    /** Points an existing grid item at a freshly bound appWidgetId, preserving geometry. */
+    suspend fun rebindWidget(itemId: Long, appWidgetId: Int) {
+        withContext(Dispatchers.IO) {
+            database.gridItemDao().updateReferenceId(itemId, appWidgetId.toString())
+        }
+    }
 
     suspend fun setAppListPackages(itemId: Long, packages: List<String>) {
         val item = database.gridItemDao().observeAll().first()
