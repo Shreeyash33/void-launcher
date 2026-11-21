@@ -91,16 +91,29 @@ object BackupManager {
     // SAF I/O (Android side)
     // ------------------------------------------------------------------
 
-    suspend fun writeToUri(context: Context, uri: Uri, payload: BackupPayload) {
+    /**
+     * Returns `true` only when serialization produced a non-empty document,
+     * the SAF output stream opened, and the UTF-8 write completed without
+     * throwing. Every failure path (including a null stream or a failing
+     * close) resolves to `false`; this function never throws.
+     */
+    suspend fun writeToUri(context: Context, uri: Uri, payload: BackupPayload): Boolean =
         withContext(Dispatchers.IO) {
             runCatching {
                 val json = toJson(payload)
-                context.contentResolver.openOutputStream(uri)?.use { output ->
-                    output.write(json.toByteArray(Charsets.UTF_8))
+                if (json.isEmpty()) {
+                    false
+                } else {
+                    val output = context.contentResolver.openOutputStream(uri)
+                    if (output == null) {
+                        false
+                    } else {
+                        output.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+                        true
+                    }
                 }
-            }
+            }.getOrDefault(false)
         }
-    }
 
     suspend fun readFromUri(context: Context, uri: Uri): BackupPayload? =
         withContext(Dispatchers.IO) {

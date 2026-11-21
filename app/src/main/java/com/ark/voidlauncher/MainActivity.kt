@@ -259,9 +259,12 @@ class MainActivity : ComponentActivity() {
                         showCoordinateDetail = showCoordinateDetail,
                     )
                     message = runCatching {
-                        BackupManager.writeToUri(context, uri, payload)
-                        "BACKUP EXPORTED"
-                    }.getOrElse { "EXPORT FAILED" }
+                        if (BackupManager.writeToUri(context, uri, payload)) {
+                            "BACKUP EXPORTED"
+                        } else {
+                            "EXPORT FAILED"
+                        }
+                    }.getOrDefault("EXPORT FAILED")
                 }
             }
 
@@ -1337,7 +1340,7 @@ private suspend fun restoreBackgrounds(
     database: VoidDatabase,
     repository: BackgroundRepository,
 ) {
-    if (entries.isEmpty()) return
+    // An empty array is an intentional "clear all backgrounds" instruction.
     val restored = entries.mapNotNull { entry ->
         val scope = runCatching { BackgroundScope.valueOf(entry.scope) }.getOrNull()
             ?: return@mapNotNull null

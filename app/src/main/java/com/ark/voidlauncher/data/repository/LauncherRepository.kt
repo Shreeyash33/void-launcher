@@ -520,6 +520,10 @@ class LauncherRepository(
                 idMap.putIfAbsent(VoidDatabase.ORIGIN_PAGE_ID, originId)
             }
 
+            // Every logical link contributes two directed rows. Collect them once so
+            // a payload that already contains the reverse row is not written twice.
+            val restoredEdges = linkedSetOf<EdgeInfo>()
+
             // Old backups predate page roles. Guarantee a drawer so APPS always
             // has a destination, reusing the seeded DOWN neighbour when free.
             if (database.pageDao().getAllOnce()
@@ -544,23 +548,35 @@ class LauncherRepository(
                     else -> null
                 }
                 if (drawerId != null) {
-                    database.pageEdgeDao().insert(
-                        PageEdgeEntity(
-                            fromPageId = database.pageDao().getByCoordOnce(
-                                payload.homeCoordX, payload.homeCoordY,
-                            )?.pageId ?: drawerId,
-                            swipeDirection = SwipeDirection.DOWN,
-                            toPageId = drawerId,
-                        ),
-                    )
+                    // A failed HOME lookup (or a HOME that became the drawer) must
+                    // not create a drawer-to-drawer self-link; the origin page is a
+                    // distinct fallback so the drawer stays reachable.
+                    val sourceId = database.pageDao().getByCoordOnce(
+                        payload.homeCoordX, payload.homeCoordY,
+                    )?.pageId
+                        ?.takeIf { it != drawerId }
+                        ?: database.pageDao().getByCoordOnce(
+                            VoidDatabase.ORIGIN_COORD_X, VoidDatabase.ORIGIN_COORD_Y,
+                        )?.pageId
+                            ?.takeIf { it != drawerId }
+                    if (sourceId != null) {
+                        PageLinks.link(sourceId, SwipeDirection.DOWN, drawerId)
+                            .toList()
+                            .forEach { restoredEdges.add(it) }
+                    }
                 }
             }
 
             payload.edges.forEach { edge ->
                 val from = idMap[edge.fromPageId] ?: return@forEach
                 val to = idMap[edge.toPageId] ?: return@forEach
+                if (from == to) return@forEach
+                PageLinks.link(from, edge.swipeDirection, to).toList()
+                    .forEach { restoredEdges.add(it) }
+            }
+            restoredEdges.forEach { edge ->
                 database.pageEdgeDao().insert(
-                    PageEdgeEntity(from, edge.swipeDirection, to),
+                    PageEdgeEntity(edge.fromPageId, edge.swipeDirection, edge.toPageId),
                 )
             }
 
