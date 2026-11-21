@@ -214,4 +214,29 @@ class BackupValidatorTest {
         assertHasError(result, "INVALID THEME MIDNIGHT")
         assertHasError(result, "INVALID ORIENTATION UPSIDE_DOWN")
     }
+
+    @Test
+    fun customAndOpaqueWidgetReferencesAreAccepted() {
+        val base = validPayload()
+        val result = BackupValidator.validate(
+            base.copy(
+                items = listOf(
+                    base.items[0].copy(referenceId = "custom:weather-card"),
+                    base.items[1].copy(referenceId = "future:opaque-thing"),
+                ),
+            ),
+        )
+
+        assertTrue(result.errors.toString(), result.isValid)
+    }
+
+    @Test
+    fun malformedCustomReferenceIsReported() {
+        val base = validPayload()
+        val result = BackupValidator.validate(
+            base.copy(items = listOf(base.items[1].copy(referenceId = "custom:bad id"))),
+        )
+
+        assertHasError(result, "INVALID CUSTOM WIDGET REFERENCE")
+    }
 }

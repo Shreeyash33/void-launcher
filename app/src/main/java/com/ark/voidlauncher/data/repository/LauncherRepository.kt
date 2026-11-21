@@ -22,6 +22,7 @@ import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.PageLinks
 import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
+import com.ark.voidlauncher.domain.WidgetReference
 import com.ark.voidlauncher.domain.effectivePageType
 import com.ark.voidlauncher.domain.isValidPageDestination
 import com.ark.voidlauncher.domain.primaryNeighbour
@@ -618,9 +619,14 @@ class LauncherRepository(
                     skippedItems++
                     return@forEach
                 }
+                val customId = WidgetReference.customId(item.referenceId)
                 val referenceId = when {
                     // Built-ins carry a stable sentinel and need no rebind.
                     item.widgetKind != null -> item.referenceId
+                    // Custom widgets keep their sidecar id so they can light up
+                    // later when the bundle is imported; never misroute them to
+                    // the system widget binder.
+                    customId != null -> WidgetReference.customReference(customId)
                     item.itemType == GridItemType.WIDGET ->
                         "placeholder:${item.referenceId.removePrefix("placeholder:")}"
                     else -> item.referenceId

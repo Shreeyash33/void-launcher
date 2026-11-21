@@ -266,4 +266,27 @@ class BackupManagerTest {
         assertNull(decoded.items[0].widgetKind)
         assertNull(decoded.items[0].appListPackages)
     }
+
+    @Test
+    fun customAndOpaqueReferencesRoundTripVerbatim() {
+        val payload = samplePayload().copy(
+            items = listOf(
+                BackedUpItem(
+                    0, 0, GridItemType.WIDGET, 1, 1, 2, 2,
+                    "custom:weather-card", true,
+                ),
+                BackedUpItem(
+                    0, 0, GridItemType.WIDGET, 4, 1, 2, 2,
+                    "future:opaque-thing", true,
+                ),
+            ),
+        )
+
+        val decoded = BackupManager.fromJson(BackupManager.toJson(payload))
+
+        assertEquals(
+            listOf("custom:weather-card", "future:opaque-thing"),
+            decoded!!.items.map { it.referenceId },
+        )
+    }
 }

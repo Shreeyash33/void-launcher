@@ -55,4 +55,26 @@ class WidgetReferenceTest {
         )
         assertEquals(PROVIDER, WidgetReference.portableProvider(PROVIDER))
     }
+
+    @Test
+    fun customReferenceIdIsExtractedAndCanonicalized() {
+        assertEquals("weather-card", WidgetReference.customId("custom:weather-card"))
+        assertEquals("weather-card", WidgetReference.customId("placeholder:custom:weather-card"))
+        assertEquals("custom:weather-card", WidgetReference.customReference("weather-card"))
+        assertTrue(WidgetReference.isCustom("custom:weather-card"))
+    }
+
+    @Test
+    fun invalidCustomReferenceIdsAreRejected() {
+        assertNull(WidgetReference.customId("custom:bad id"))
+        assertNull(WidgetReference.customId("custom:"))
+        assertNull(WidgetReference.customId("custom:${"x".repeat(65)}"))
+        assertFalse(WidgetReference.isCustom(PROVIDER))
+    }
+
+    @Test
+    fun customReferenceHasNoSystemProvider() {
+        assertNull(WidgetReference.portableProvider("custom:weather-card"))
+        assertNull(WidgetReference.portableProvider("placeholder:custom:weather-card"))
+    }
 }

@@ -130,6 +130,8 @@ A green Gradle build is necessary but not sufficient; swipe feel, widget resizin
 
 - **Page-label widget (user request, 2026-11-21):** The fixed top-centre title/coordinate badge in `ui/hud/NavigationHud.kt` (`PAGE 0,0` / `HOME`) should become a normal built-in widget so the user can move, resize, edit or delete it like `CLOCK` and `APP LIST`. Keep the direction indicators and wall flash in `NavigationHud`; only the title/coordinate badge moves into the grid. Scope for the later widget batch: add a `PAGE_INFO` value to `BuiltInWidgetKind`, render `displayTitle` + coordinates + HOME tag from the current `PageInfo`, add it to `BuiltInWidgetPickerScreen`, decide whether fresh installs seed one on HOME and whether omitting it suppresses the fixed badge, extend `BackupManager`/`BackupValidator` enum handling, and update `web_editor/WEB_EDITOR_HANDOFF.md` built-in-widget list. Do not start this inside the screen-cleanup slice.
 
+- **Modular widget architecture (user decision, 2026-11-21):** Widgets are first-class, user-extensible items, not a closed enum. The layout file references them (`builtin:`, flattened provider, `custom:<id>`, or an opaque future scheme); web-authored definitions live in a sidecar `voidlauncher-widgets.json`, and a `voidlauncher-inventory.json` export lets the web editor mimic the device's apps/widgets. Custom widgets run as sandboxed WebView widgets with no network, file access, navigation, bridges or external resources. Missing custom widgets render as placeholders and are never dropped on import/export; unknown reference schemes round-trip verbatim. Authoritative spec is `web_editor/WEB_EDITOR_HANDOFF.md` §5a, §9a, §9b and §11.
+
 ---
 
 ## 6. Resolved and remaining questions

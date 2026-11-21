@@ -1,6 +1,7 @@
 package com.ark.voidlauncher.data.backup
 
 import com.ark.voidlauncher.ThemeMode
+import com.ark.voidlauncher.domain.CUSTOM_WIDGET_REFERENCE_PREFIX
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.OrientationMode
 import com.ark.voidlauncher.domain.PageGraphValidator
@@ -8,6 +9,7 @@ import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.PageLinks
 import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
+import com.ark.voidlauncher.domain.WidgetReference
 import com.ark.voidlauncher.domain.background.BackgroundKind
 import com.ark.voidlauncher.domain.background.BackgroundScope
 
@@ -132,6 +134,12 @@ object BackupValidator {
             }
             if (item.referenceId.isBlank()) {
                 errors += "BLANK ITEM REFERENCE ${item.pageCoordX},${item.pageCoordY}"
+            }
+            val unwrapped = WidgetReference.unwrap(item.referenceId).trim()
+            if (unwrapped.startsWith(CUSTOM_WIDGET_REFERENCE_PREFIX) &&
+                WidgetReference.customId(item.referenceId) == null
+            ) {
+                errors += "INVALID CUSTOM WIDGET REFERENCE ${item.referenceId}"
             }
         }
 

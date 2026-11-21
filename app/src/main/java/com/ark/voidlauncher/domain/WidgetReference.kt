@@ -24,6 +24,21 @@ object WidgetReference {
         if (value.isBlank()) return null
         if (isLiveId(value)) return null
         if (BuiltInWidgets.fromReference(value) != null) return null
+        if (customId(referenceId) != null) return null
         return value
     }
+
+    /** Extracts the stable id from `custom:<id>`, including a wrapped placeholder. */
+    fun customId(referenceId: String): String? {
+        val value = unwrap(referenceId).trim()
+        if (!value.startsWith(CUSTOM_WIDGET_REFERENCE_PREFIX)) return null
+        val id = value.removePrefix(CUSTOM_WIDGET_REFERENCE_PREFIX)
+        return id.takeIf { CUSTOM_WIDGET_ID_REGEX.matches(it) }
+    }
+
+    /** True when the reference is syntactically a sidecar custom widget. */
+    fun isCustom(referenceId: String): Boolean = customId(referenceId) != null
+
+    /** Canonical layout reference for a custom widget id. */
+    fun customReference(id: String): String = CUSTOM_WIDGET_REFERENCE_PREFIX + id
 }
