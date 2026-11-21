@@ -73,8 +73,12 @@ import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.displayTitle
+import com.ark.voidlauncher.domain.GestureAction
 import com.ark.voidlauncher.domain.GestureBindings
+import com.ark.voidlauncher.domain.GestureDispatch
 import com.ark.voidlauncher.domain.GestureScope
+import com.ark.voidlauncher.domain.GestureTarget
+import com.ark.voidlauncher.domain.GestureTrigger
 import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.OrientationMode
 import com.ark.voidlauncher.domain.PageHistory
@@ -92,6 +96,7 @@ import com.ark.voidlauncher.domain.background.encodeGradientStops
 import com.ark.voidlauncher.domain.placement.PlacementResolver
 import com.ark.voidlauncher.domain.placement.PlacementResult
 import com.ark.voidlauncher.system.accessibility.AccessibilityBridge
+import com.ark.voidlauncher.system.accessibility.GlobalAction
 import com.ark.voidlauncher.system.widgets.WidgetEvents
 import com.ark.voidlauncher.system.widgets.WidgetHostController
 import com.ark.voidlauncher.system.widgets.WidgetHostView
@@ -741,6 +746,72 @@ class MainActivity : ComponentActivity() {
                 rebindLauncher.launch(widgetController.createPickIntent(id))
             }
 
+            // Runs a configured gesture action. A missing binding keeps today's
+            // hardcoded behavior; an explicit binding replaces it.
+            fun runSystemGesture(target: GestureTarget) {
+                if (!AccessibilityBridge.isEnabled(context)) {
+                    message = "ACCESSIBILITY ACTION UNAVAILABLE"
+                    return
+                }
+                val global = when (target) {
+                    GestureTarget.SYSTEM_BACK -> GlobalAction.BACK
+                    GestureTarget.SYSTEM_RECENTS -> GlobalAction.RECENTS
+                    GestureTarget.SYSTEM_NOTIFICATIONS -> GlobalAction.NOTIFICATIONS
+                    GestureTarget.LOCK_SCREEN -> GlobalAction.LOCK_SCREEN
+                    else -> return
+                }
+                if (!AccessibilityBridge.perform(global)) {
+                    message = "SYSTEM ACTION UNAVAILABLE"
+                }
+            }
+
+            fun runGestureAction(action: GestureAction?, fallback: () -> Unit) {
+                if (action == null) {
+                    fallback()
+                    return
+                }
+                val target = GestureDispatch.targetFor(action)
+                when (target) {
+                    GestureTarget.HOME -> {
+                        if (homePageId != currentPageId) {
+                            pageHistory.push(currentPageId, homePageId)
+                        }
+                        currentPageId = homePageId
+                    }
+                    GestureTarget.MAP -> overview = true
+                    GestureTarget.SETTINGS -> {
+                        exitCanvasEditor()
+                        screen = Screen.SETTINGS
+                    }
+                    GestureTarget.APP_DRAWER -> {
+                        exitCanvasEditor()
+                        appDrawerPageId?.let { drawerId ->
+                            if (drawerId != currentPageId) {
+                                pageHistory.push(currentPageId, drawerId)
+                            }
+                            currentPageId = drawerId
+                        }
+                    }
+                    GestureTarget.WIDGET_PICKER -> {
+                        exitCanvasEditor()
+                        openWidgetPicker()
+                    }
+                    GestureTarget.EDITOR -> {
+                        exitCanvasEditor()
+                        editor = Editor.ITEMS
+                    }
+                    GestureTarget.TOGGLE_COORDINATES -> scope.launch {
+                        prefs.setShowCoordinateDetail(!showCoordinateDetail)
+                    }
+                    GestureTarget.SYSTEM_BACK, GestureTarget.SYSTEM_RECENTS,
+                    GestureTarget.SYSTEM_NOTIFICATIONS, GestureTarget.LOCK_SCREEN,
+                    -> if (GestureDispatch.requiresAccessibility(target)) {
+                        runSystemGesture(target)
+                    }
+                    GestureTarget.UNSUPPORTED -> message = "GESTURE ACTION NOT AVAILABLE"
+                }
+            }
+
             val systemDark = isSystemInDarkTheme()
             val darkTheme = when (themeMode) {
                 ThemeMode.DARK -> true
@@ -814,6 +885,14 @@ class MainActivity : ComponentActivity() {
                     when (screen) {
                         Screen.HOME -> {
                             val currentPage = pages.firstOrNull { it.pageId == currentPageId }
+                            val gestureCoord = (currentPage?.coordX ?: 0) to
+                                (currentPage?.coordY ?: 0)
+                            val doubleTapAction = gestureBindings.actionFor(
+                                gestureCoord, GestureTrigger.DOUBLE_TAP,
+                            )
+                            val longPressAction = gestureBindings.actionFor(
+                                gestureCoord, GestureTrigger.LONG_PRESS,
+                            )
                             if (currentPage?.pageType == PageType.APP_DRAWER) {
                                 AppDrawerPage(
                                     apps = apps,
@@ -826,7 +905,18 @@ class MainActivity : ComponentActivity() {
                                     coordX = currentPage.coordX,
                                     coordY = currentPage.coordY,
                                     showCoordinateDetail = showCoordinateDetail,
-                                    onOpenMap = { overview = true },
+                                    onOpenMap = {
+                                        val drawerPage = pages.firstOrNull {
+                                            it.pageId == currentPageId
+                                        }
+                                        val drawerCoord = (drawerPage?.coordX ?: 0) to
+                                            (drawerPage?.coordY ?: 0)
+                                        runGestureAction(
+                                            gestureBindings.actionFor(
+                                                drawerCoord, GestureTrigger.LONG_PRESS,
+                                            ),
+                                        ) { overview = true }
+                                    },
                                     onBack = {
                                         if (homePageId != currentPageId) {
                                             pageHistory.push(currentPageId, homePageId)
@@ -867,10 +957,12 @@ class MainActivity : ComponentActivity() {
                                             }
                                     },
                                     onHomeRequested = {
-                                        if (homePageId != currentPageId) {
-                                            pageHistory.push(currentPageId, homePageId)
+                                        runGestureAction(doubleTapAction) {
+                                            if (homePageId != currentPageId) {
+                                                pageHistory.push(currentPageId, homePageId)
+                                            }
+                                            currentPageId = homePageId
                                         }
-                                        currentPageId = homePageId
                                     },
                                     onAppClick = { appRepository.launch(it) },
                                     onOpenDrawerPage = {
@@ -894,7 +986,9 @@ class MainActivity : ComponentActivity() {
                                         exitCanvasEditor()
                                         overview = true
                                     },
-                                    onLongPress = { overview = true },
+                                    onLongPress = {
+                                        runGestureAction(longPressAction) { overview = true }
+                                    },
                                     showCoordinateDetail = showCoordinateDetail,
                                     canvasEditing = canvasEditing,
                                     selectedCanvasItemId = selectedCanvasItemId,
