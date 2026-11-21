@@ -1,6 +1,7 @@
 package com.ark.voidlauncher.ui.editor
 
 import com.ark.voidlauncher.domain.EdgeInfo
+import com.ark.voidlauncher.domain.PageGraphChanges
 import com.ark.voidlauncher.domain.PageGraphValidator
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.PageLinks
@@ -126,9 +127,8 @@ object EditorValidation {
             }
         }
 
-        val before = PageGraphValidator.validate(pages, edges, homePageId)
-        val after = PageGraphValidator.validate(pages, proposedEdges, homePageId)
-        return after.pagesWithoutConnection.any { it !in before.pagesWithoutConnection } ||
-            after.pagesWithoutPathToHome.any { it !in before.pagesWithoutPathToHome }
+        return PageGraphChanges.strandsAdditionalPages(
+            pages, edges, pages, proposedEdges, homePageId,
+        )
     }
 }

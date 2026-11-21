@@ -16,14 +16,16 @@ New-Item -ItemType Directory -Force -Path $backupDir | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $zipPath = Join-Path $backupDir "void-launcher-source-$stamp.zip"
 
-# Only these generated/VCS folders are omitted. Everything else is part of the
-# project snapshot, including downloadable APKs, local.properties, and logs.
+# Generated/VCS folders and the separate web_editor project are omitted.
+# Everything else is part of the project snapshot, including downloadable APKs,
+# local.properties, and logs.
 $excludedPrefixes = @(
     '.git/',
     '.gradle/',
     'build/',
     'app/build/',
-    'backups/'
+    'backups/',
+    'web_editor/'
 )
 
 $files = @(
@@ -75,7 +77,8 @@ $bad = @(
         $relative.StartsWith('.git/', [System.StringComparison]::OrdinalIgnoreCase) -or
         $relative.StartsWith('.gradle/', [System.StringComparison]::OrdinalIgnoreCase) -or
         $relative.StartsWith('build/', [System.StringComparison]::OrdinalIgnoreCase) -or
-        $relative.StartsWith('backups/', [System.StringComparison]::OrdinalIgnoreCase)
+        $relative.StartsWith('backups/', [System.StringComparison]::OrdinalIgnoreCase) -or
+        $relative.StartsWith('web_editor/', [System.StringComparison]::OrdinalIgnoreCase)
     }
 )
 if ($bad.Count -ne 0) {

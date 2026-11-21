@@ -9,10 +9,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -296,7 +294,7 @@ internal fun DirectionToggle(
             direction = visualDirection,
             color = arrowColor,
             diameter = 10.dp,
-            label = "SWIPE ${direction.name}",
+            label = "SWIPE ${visualDirection.name}",
         )
     }
 }
@@ -389,33 +387,5 @@ internal fun OverviewArrow(
                 StrokeCap.Round,
             )
         }
-    }
-}
-
-/** One of the bottom navigation entry points, including the conditional HOME toggle. */
-@Composable
-internal fun RowScope.NavButton(
-    label: String,
-    onClick: () -> Unit,
-    enabled: Boolean = true,
-) {
-    Box(
-        modifier = Modifier
-            .weight(1f)
-            .height(56.dp)
-            .clickable(enabled = enabled, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            // `background()` does not provide a content colour, so inherit from the
-            // theme explicitly or the label renders black on a dark surface.
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = if (enabled) 1f else 0.35f,
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Clip,
-        )
     }
 }

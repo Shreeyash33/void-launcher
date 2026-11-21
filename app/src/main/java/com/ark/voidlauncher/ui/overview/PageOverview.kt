@@ -21,6 +21,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.PageLinks
 import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.displayTitle
@@ -80,6 +83,7 @@ fun PageOverview(
     onAddPage: (Int, Int, PageType) -> Unit = { _, _, _ -> },
     onMovePage: (Long, Int, Int) -> Unit = { _, _, _ -> },
     onSetHomePage: (Long) -> Unit = {},
+    onRenamePage: (pageId: Long, title: String) -> Unit = { _, _ -> },
     onToggleEdge: (Long, SwipeDirection, Long, Boolean) -> Unit = { _, _, _, _ -> },
     showCoordinateDetail: Boolean = true,
     modifier: Modifier = Modifier,
@@ -146,6 +150,8 @@ fun PageOverview(
         var selectedPageId by remember { mutableStateOf<Long?>(null) }
         var drag by remember { mutableStateOf<PageDrag?>(null) }
         var menuOpen by remember { mutableStateOf(false) }
+        var renamePageId by remember { mutableStateOf<Long?>(null) }
+        var renameText by remember { mutableStateOf("") }
 
         val counts = remember(items) { overviewItemCounts(items) }
         val pageByCoord = remember(pages) { pages.associateBy { it.coordX to it.coordY } }
@@ -163,11 +169,10 @@ fun PageOverview(
                         pageId = page.pageId,
                         direction = direction,
                         toPageId = neighbourId,
-                        enabled = neighbourId != null && edges.any {
-                            it.fromPageId == page.pageId &&
-                                it.swipeDirection == direction &&
-                                it.toPageId == neighbourId
-                        },
+                        // One map control represents a bidirectional link: a legacy
+                        // half-link reads as off until both directed rows are present.
+                        enabled = neighbourId != null &&
+                            PageLinks.isComplete(edges, page.pageId, direction, neighbourId),
                     )
                 }
             }
@@ -501,8 +506,77 @@ fun PageOverview(
                                 .padding(vertical = 12.dp),
                         )
                     }
+                    Text(
+                        text = "RENAME",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                renamePageId = selectedPage.pageId
+                                renameText = selectedPage.title
+                                menuOpen = false
+                            }
+                            .padding(vertical = 12.dp),
+                    )
                 }
             }
+        }
+
+        val renameTargetId = renamePageId
+        if (renameTargetId != null) {
+            AlertDialog(
+                onDismissRequest = { renamePageId = null },
+                containerColor = MaterialTheme.colorScheme.surface,
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                textContentColor = MaterialTheme.colorScheme.onSurface,
+                title = {
+                    Text(
+                        text = "RENAME PAGE",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                },
+                text = {
+                    TextField(
+                        value = renameText,
+                        onValueChange = { renameText = it },
+                        singleLine = true,
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                            focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                            cursorColor = MaterialTheme.colorScheme.primary,
+                            focusedIndicatorColor = MaterialTheme.colorScheme.primary,
+                            unfocusedIndicatorColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            onRenamePage(renameTargetId, renameText)
+                            renamePageId = null
+                        },
+                    ) {
+                        Text(
+                            text = "SAVE TITLE",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { renamePageId = null }) {
+                        Text(
+                            text = "CANCEL",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+            )
         }
 
         val addCoord = pendingAddCoord
@@ -573,7 +647,7 @@ private data class DragPreview(
     val center: Offset,
 )
 
-/** One outgoing edge control derived from a page and its orthogonal neighbour. */
+/** One edge control derived from a page, its orthogonal neighbour and their full link. */
 private data class EdgeToggle(
     val pageId: Long,
     val direction: SwipeDirection,

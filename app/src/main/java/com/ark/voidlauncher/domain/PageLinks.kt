@@ -31,6 +31,23 @@ object PageLinks {
             EdgeInfo(toPageId, opposite(direction), fromPageId)
 
     /**
+     * True only when both directed rows of the logical link are present.
+     *
+     * The map shows one toggle for a bidirectional link, so a legacy half-link
+     * is treated as off until both rows exist. Toggling it on writes both rows;
+     * toggling it off removes both.
+     */
+    fun isComplete(
+        edges: List<EdgeInfo>,
+        fromPageId: Long,
+        direction: SwipeDirection,
+        toPageId: Long,
+    ): Boolean {
+        val (forward, reverse) = link(fromPageId, direction, toPageId)
+        return forward in edges && reverse in edges
+    }
+
+    /**
      * Returns a copy of [edges] without either directed row of the link.
      * Unrelated edges (including other directions between the same pages)
      * are preserved, and the input list is never modified.

@@ -100,7 +100,6 @@ import com.ark.voidlauncher.ui.customtheme.CustomThemeEditorSheet
 import com.ark.voidlauncher.ui.drawer.AppDrawerOverlay
 import com.ark.voidlauncher.ui.editor.AppTypographyEditorSheet
 import com.ark.voidlauncher.ui.overview.PageOverview
-import com.ark.voidlauncher.ui.editor.EdgeChange
 import com.ark.voidlauncher.ui.editor.EditorValidation
 import com.ark.voidlauncher.ui.editor.ItemEditorSheet
 import com.ark.voidlauncher.ui.editor.LinkChange
@@ -756,6 +755,7 @@ class MainActivity : ComponentActivity() {
                                     coordX = currentPage.coordX,
                                     coordY = currentPage.coordY,
                                     showCoordinateDetail = showCoordinateDetail,
+                                    onOpenMap = { overview = true },
                                     onBack = {
                                         if (homePageId != currentPageId) {
                                             pageHistory.push(currentPageId, homePageId)
@@ -985,7 +985,7 @@ class MainActivity : ComponentActivity() {
                                     // be laid out in one pass. HERE only changes when the
                                     // user explicitly selects a page.
                                     if (id == null) {
-                                        message = "PAGE ALREADY EXISTS OR OUT OF RANGE"
+                                        message = "INVALID PAGE LOCATION"
                                     }
                                 }
                             },
@@ -1000,6 +1000,13 @@ class MainActivity : ComponentActivity() {
                                 scope.launch {
                                     if (!repository.setHomePage(pageId)) {
                                         message = "HOME CANNOT BE SET HERE"
+                                    }
+                                }
+                            },
+                            onRenamePage = { pageId, title ->
+                                scope.launch {
+                                    if (!repository.renamePage(pageId, title)) {
+                                        message = "PAGE RENAME FAILED"
                                     }
                                 }
                             },
@@ -1057,12 +1064,6 @@ class MainActivity : ComponentActivity() {
                         pages = pages,
                         edges = edges,
                         homePageId = homePageId,
-                        onAddPage = { x, y ->
-                            scope.launch {
-                                val id = repository.addPage(x, y)
-                                if (id == null) message = "PAGE ALREADY EXISTS OR OUT OF RANGE"
-                            }
-                        },
                         onDeletePage = { id ->
                             pageHistory.dropPage(id)
                             if (id == currentPageId) {
@@ -1078,25 +1079,34 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onSetEdge = { from, direction, to ->
-                            val edge = EdgeInfo(from, direction, to)
-                            if (EditorValidation.edgeChangeIsSafe(
-                                    pages, edges, homePageId, EdgeChange.SetEdge(edge),
+                        onSetLink = { from, direction, to ->
+                            val change = LinkChange.SetLink(from, direction, to)
+                            if (EditorValidation.linkChangeStrandsAdditionalPages(
+                                    pages, edges, homePageId, change,
                                 )
                             ) {
-                                scope.launch { repository.setEdge(from, direction, to) }
-                            } else {
                                 message = "THAT WOULD STRAND A PAGE"
+                            } else {
+                                scope.launch {
+                                    if (!repository.setLink(from, direction, to)) {
+                                        message = "LINK COULD NOT BE UPDATED"
+                                    }
+                                }
                             }
                         },
-                        onRemoveEdge = { from, direction ->
-                            if (EditorValidation.edgeChangeIsSafe(
-                                    pages, edges, homePageId, EdgeChange.RemoveEdge(from, direction),
+                        onRemoveLink = { from, direction, to ->
+                            val change = LinkChange.RemoveLink(from, direction, to)
+                            if (EditorValidation.linkChangeStrandsAdditionalPages(
+                                    pages, edges, homePageId, change,
                                 )
                             ) {
-                                scope.launch { repository.removeEdge(from, direction) }
-                            } else {
                                 message = "THAT WOULD STRAND A PAGE"
+                            } else {
+                                scope.launch {
+                                    if (!repository.removeLink(from, direction, to)) {
+                                        message = "LINK COULD NOT BE UPDATED"
+                                    }
+                                }
                             }
                         },
                         onSetHomePage = { id ->
@@ -1527,21 +1537,21 @@ private fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // The page name is primary; coordinates are secondary detail. Everything
-        // else is reachable by long-press gestures or the system Home button.
-        if (showCoordinateDetail) {
-            GlassPanel(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 12.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = page.displayTitle,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+        // The page name is primary and always visible; coordinates are optional
+        // secondary detail. Everything else is reachable by long-press or Home.
+        GlassPanel(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 12.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = page.displayTitle,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+                if (showCoordinateDetail) {
                     Text(
                         text = "${page.coordX}, ${page.coordY}",
                         style = MaterialTheme.typography.labelSmall,
@@ -1646,6 +1656,7 @@ private fun AppDrawerPage(
     coordX: Int,
     coordY: Int,
     showCoordinateDetail: Boolean = true,
+    onOpenMap: () -> Unit,
     onBack: () -> Unit,
     onReverseSwipe: (SwipeDirection) -> Unit,
     onLaunch: (packageName: String) -> Unit,
@@ -1656,6 +1667,9 @@ private fun AppDrawerPage(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures(onLongPress = { onOpenMap() })
+            }
             .pointerInput(Unit) {
                 val thresholdPx = 80.dp.toPx()
                 awaitPointerEventScope {
@@ -1721,18 +1735,18 @@ private fun AppDrawerPage(
             onTogglePin = onTogglePin,
             onCustomize = onCustomize,
         )
-        if (showCoordinateDetail) {
-            GlassPanel(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(20.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
+        GlassPanel(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(20.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (showCoordinateDetail) {
                     Text(
                         text = "$coordX, $coordY",
                         style = MaterialTheme.typography.labelSmall,

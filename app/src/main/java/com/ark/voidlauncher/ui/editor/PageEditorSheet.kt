@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.PageInfo
+import com.ark.voidlauncher.domain.PageLinks
+import com.ark.voidlauncher.domain.PageType
 import com.ark.voidlauncher.domain.SwipeDirection
 import com.ark.voidlauncher.domain.displayTitle
 
@@ -30,72 +32,24 @@ fun PageEditorSheet(
     pages: List<PageInfo>,
     edges: List<EdgeInfo>,
     homePageId: Long,
-    onAddPage: (coordX: Int, coordY: Int) -> Unit,
     onDeletePage: (pageId: Long) -> Unit,
     onRename: (pageId: Long, title: String) -> Unit = { _, _ -> },
-    onSetEdge: (fromPageId: Long, direction: SwipeDirection, toPageId: Long) -> Unit,
-    onRemoveEdge: (fromPageId: Long, direction: SwipeDirection) -> Unit,
+    onSetLink: (fromPageId: Long, direction: SwipeDirection, toPageId: Long) -> Unit,
+    onRemoveLink: (fromPageId: Long, direction: SwipeDirection, toPageId: Long) -> Unit,
     onSetHomePage: (pageId: Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var coordX by remember { mutableStateOf("") }
-    var coordY by remember { mutableStateOf("") }
-    var addError by remember { mutableStateOf<String?>(null) }
-
     var sourceId by remember { mutableStateOf<Long?>(null) }
     var targetId by remember { mutableStateOf<Long?>(null) }
     var direction by remember { mutableStateOf(SwipeDirection.RIGHT) }
     var renamePageId by remember { mutableStateOf<Long?>(null) }
     var renameText by remember { mutableStateOf("") }
 
-    fun submitAddPage() {
-        val x = coordX.trim().toIntOrNull()
-        val y = coordY.trim().toIntOrNull()
-        if (x == null || y == null) {
-            addError = "ENTER A NUMBER"
-            return
-        }
-        if (x !in PageInfo.MIN_COORD..PageInfo.MAX_COORD ||
-            y !in PageInfo.MIN_COORD..PageInfo.MAX_COORD
-        ) {
-            addError = "COORDINATES OUT OF BOUNDS (-10..10)"
-            return
-        }
-        if (pages.any { it.coordX == x && it.coordY == y }) {
-            addError = "PAGE ALREADY EXISTS AT THIS COORDINATE"
-            return
-        }
-        onAddPage(x, y)
-        coordX = ""
-        coordY = ""
-        addError = null
-    }
-
     EditorSheetScaffold(title = "Page editor", onDismiss = onDismiss) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-        item { EditorSectionHeader("Add page") }
-        item {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                EditorCompactIntField(
-                    value = coordX,
-                    onValueChange = { coordX = it; addError = null },
-                    label = "X",
-                    modifier = Modifier.weight(1f),
-                )
-                EditorCompactIntField(
-                    value = coordY,
-                    onValueChange = { coordY = it; addError = null },
-                    label = "Y",
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            EditorTextAction(text = "ADD PAGE", onClick = { submitAddPage() })
-            addError?.let { EditorHint(text = it, isError = true) }
-        }
-
         item { EditorSectionHeader("Pages") }
         if (pages.isEmpty()) {
             item { EditorHint("NO PAGES YET") }
@@ -112,13 +66,22 @@ fun PageEditorSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(modifier = Modifier.fillMaxWidth()) {
-                if (page.pageId == homePageId) {
-                    EditorChip(text = "HOME", selected = true, onClick = {})
-                } else {
-                    EditorTextAction(
-                        text = "SET HOME",
-                        onClick = { onSetHomePage(page.pageId) },
-                    )
+                when {
+                    page.pageId == homePageId ->
+                        EditorChip(text = "HOME", selected = true, onClick = {})
+
+                    page.pageType == PageType.APP_DRAWER ->
+                        EditorTextAction(
+                            text = "HOME UNAVAILABLE",
+                            enabled = false,
+                            onClick = {},
+                        )
+
+                    else ->
+                        EditorTextAction(
+                            text = "SET HOME",
+                            onClick = { onSetHomePage(page.pageId) },
+                        )
                 }
                 EditorTextAction(
                     text = "RENAME",
@@ -158,7 +121,7 @@ fun PageEditorSheet(
             )
         }
 
-        item { EditorSectionHeader("Set edge") }
+        item { EditorSectionHeader("Set link") }
         item {
             Text(
                 text = "SOURCE",
@@ -207,34 +170,33 @@ fun PageEditorSheet(
             val from = sourceId
             val to = targetId
             val setChange = if (from != null && to != null) {
-                EdgeChange.SetEdge(EdgeInfo(from, direction, to))
+                LinkChange.SetLink(from, direction, to)
             } else {
                 null
             }
-            val hasExistingEdge = edges.any {
-                it.fromPageId == from && it.swipeDirection == direction
-            }
-            val removeChange = if (from != null && hasExistingEdge) {
-                EdgeChange.RemoveEdge(from, direction)
+            val removeChange = if (from != null && to != null &&
+                PageLinks.isComplete(edges, from, direction, to)
+            ) {
+                LinkChange.RemoveLink(from, direction, to)
             } else {
                 null
             }
             val setSafe = setChange?.let {
-                EditorValidation.edgeChangeIsSafe(pages, edges, homePageId, it)
+                !EditorValidation.linkChangeStrandsAdditionalPages(pages, edges, homePageId, it)
             } ?: false
             val removeSafe = removeChange?.let {
-                EditorValidation.edgeChangeIsSafe(pages, edges, homePageId, it)
+                !EditorValidation.linkChangeStrandsAdditionalPages(pages, edges, homePageId, it)
             } ?: false
 
             Row(modifier = Modifier.fillMaxWidth()) {
                 EditorTextAction(
-                    text = "SET EDGE",
+                    text = "SET LINK",
                     enabled = setSafe,
                     onClick = {
                         val source = sourceId
                         val target = targetId
                         if (source != null && target != null) {
-                            onSetEdge(source, direction, target)
+                            onSetLink(source, direction, target)
                         }
                     },
                 )
@@ -243,25 +205,28 @@ fun PageEditorSheet(
                     enabled = removeSafe,
                     onClick = {
                         val source = sourceId
-                        if (source != null) onRemoveEdge(source, direction)
+                        val target = targetId
+                        if (source != null && target != null) {
+                            onRemoveLink(source, direction, target)
+                        }
                     },
                 )
             }
             when {
                 setChange != null && !setSafe ->
-                    EditorHint("THIS EDGE WOULD DISCONNECT A PAGE", isError = true)
+                    EditorHint("THIS LINK WOULD DISCONNECT A PAGE", isError = true)
 
                 removeChange != null && !removeSafe ->
-                    EditorHint("REMOVING THIS EDGE WOULD DISCONNECT A PAGE", isError = true)
+                    EditorHint("REMOVING THIS LINK WOULD DISCONNECT A PAGE", isError = true)
 
                 sourceId == null || targetId == null ->
                     EditorHint("PICK A SOURCE AND TARGET PAGE")
             }
         }
 
-        item { EditorSectionHeader("Existing edges") }
+        item { EditorSectionHeader("Existing links") }
         if (edges.isEmpty()) {
-            item { EditorHint("NO EDGES YET") }
+            item { EditorHint("NO LINKS YET") }
         }
         items(edges) { edge ->
             Text(
@@ -270,16 +235,20 @@ fun PageEditorSheet(
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.fillMaxWidth(),
             )
-            val safe = EditorValidation.edgeChangeIsSafe(
+            val safe = !EditorValidation.linkChangeStrandsAdditionalPages(
                 pages = pages,
                 edges = edges,
                 homePageId = homePageId,
-                change = EdgeChange.RemoveEdge(edge.fromPageId, edge.swipeDirection),
+                change = LinkChange.RemoveLink(
+                    edge.fromPageId, edge.swipeDirection, edge.toPageId,
+                ),
             )
             EditorTextAction(
-                text = "REMOVE",
+                text = "REMOVE LINK",
                 enabled = safe,
-                onClick = { onRemoveEdge(edge.fromPageId, edge.swipeDirection) },
+                onClick = {
+                    onRemoveLink(edge.fromPageId, edge.swipeDirection, edge.toPageId)
+                },
             )
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),

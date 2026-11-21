@@ -16,6 +16,7 @@ import com.ark.voidlauncher.data.db.toEdgeInfo
 import com.ark.voidlauncher.data.db.toPageInfo
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.GridItemType
+import com.ark.voidlauncher.domain.PageGraphChanges
 import com.ark.voidlauncher.domain.PageInfo
 import com.ark.voidlauncher.domain.PageLinks
 import com.ark.voidlauncher.domain.PageType
@@ -32,6 +33,9 @@ import kotlinx.coroutines.flow.map
 
 /** Result of a Room-only transaction whose preference write must happen after commit. */
 private data class HomeUpdate(val ok: Boolean, val newCoord: Pair<Int, Int>?)
+
+/** Negative sentinel used only to validate graph mutations before Room assigns an id. */
+private const val TEMP_PAGE_ID = -1L
 
 /** Single write surface for editor/canvas callbacks. Reads stay reactive. */
 class LauncherRepository(
@@ -93,9 +97,10 @@ class LauncherRepository(
     }
 
     /**
-     * Creates a page with an explicit stored role and links it to the first existing
-     * orthogonal neighbour by priority (LEFT, RIGHT, UP, DOWN). The link and the page
-     * are written together so a new page is never left isolated by a partial insert.
+     * Creates a page with an explicit stored role and a bidirectional default link
+     * to the first existing orthogonal neighbour (LEFT, RIGHT, UP, DOWN priority).
+     * The first page may be isolated; every later page must be adjacent and may not
+     * strand an existing page. Page and both directed edge rows commit together.
      */
     suspend fun addPage(
         x: Int,
@@ -104,10 +109,36 @@ class LauncherRepository(
     ): Long? {
         if (x !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) return null
         if (y !in PageInfo.MIN_COORD..PageInfo.MAX_COORD) return null
+        val homeId = homePageId.first()
         return database.withTransaction {
-            if (database.pageDao().getByCoordOnce(x, y) != null) {
+            val currentPages = database.pageDao().getAllOnce().map { it.toPageInfo() }
+            if (currentPages.any { it.coordX == x && it.coordY == y }) {
                 return@withTransaction null
             }
+            if (currentPages.isNotEmpty() && !isValidPageDestination(currentPages, x, y)) {
+                return@withTransaction null
+            }
+
+            val currentEdges = database.pageEdgeDao().getAllOnce().map { it.toEdgeInfo() }
+            val defaultLink = primaryNeighbour(currentPages, x, y)
+                ?.let { (neighbour, direction) -> PageLinks.link(TEMP_PAGE_ID, direction, neighbour.pageId) }
+            val tempPage = PageInfo(
+                pageId = TEMP_PAGE_ID,
+                coordX = x,
+                coordY = y,
+                title = "Page $x,$y",
+                pageType = pageType,
+            )
+            val afterPages = currentPages + tempPage
+            val afterEdges = currentEdges + defaultLink?.toList().orEmpty()
+            if (currentPages.isNotEmpty() &&
+                PageGraphChanges.strandsAdditionalPages(
+                    currentPages, currentEdges, afterPages, afterEdges, homeId,
+                )
+            ) {
+                return@withTransaction null
+            }
+
             val id = database.pageDao().insert(
                 PageEntity(
                     coordX = x,
@@ -116,10 +147,16 @@ class LauncherRepository(
                     pageType = pageType,
                 ),
             )
-            val pages = database.pageDao().getAllOnce().map { it.toPageInfo() }
-            primaryNeighbour(pages, x, y)?.let { (neighbour, direction) ->
+            defaultLink?.let { (forward, _) ->
                 database.pageEdgeDao().insert(
-                    PageEdgeEntity(id, direction, neighbour.pageId),
+                    PageEdgeEntity(id, forward.swipeDirection, forward.toPageId),
+                )
+                database.pageEdgeDao().insert(
+                    PageEdgeEntity(
+                        forward.toPageId,
+                        PageLinks.opposite(forward.swipeDirection),
+                        id,
+                    ),
                 )
             }
             id
@@ -127,12 +164,14 @@ class LauncherRepository(
     }
 
     /**
-     * Relocates a page while preserving its role. All old edges (incoming and
-     * outgoing) are dropped and exactly one default outgoing edge is derived at the
-     * destination; the effective HOME follows the moved page if it was home.
+     * Relocates a page while preserving its role. All old edges are dropped and one
+     * bidirectional default link is derived at the destination. The move is rejected
+     * if it would strand an additional page; the effective HOME follows the moved
+     * page if it was home.
      */
     suspend fun movePage(pageId: Long, x: Int, y: Int): Boolean {
         val (homeX, homeY) = prefs.homeCoord.first()
+        val homeId = homePageId.first()
         val result = database.withTransaction {
             val page = database.pageDao().getByIdOnce(pageId)
                 ?: return@withTransaction HomeUpdate(false, null)
@@ -141,14 +180,34 @@ class LauncherRepository(
                 return@withTransaction HomeUpdate(false, null)
             }
 
+            val edgesBefore = database.pageEdgeDao().getAllOnce().map { it.toEdgeInfo() }
+            val others = rows.filterNot { it.pageId == pageId }
+            val defaultLink = primaryNeighbour(others, x, y)
+                ?.let { (neighbour, direction) -> PageLinks.link(pageId, direction, neighbour.pageId) }
+            val afterPages = others + page.toPageInfo().copy(coordX = x, coordY = y)
+            val afterEdges = edgesBefore.filterNot {
+                it.fromPageId == pageId || it.toPageId == pageId
+            } + defaultLink?.toList().orEmpty()
+            if (PageGraphChanges.strandsAdditionalPages(
+                    rows, edgesBefore, afterPages, afterEdges, homeId,
+                )
+            ) {
+                return@withTransaction HomeUpdate(false, null)
+            }
+
             val wasHome = page.coordX == homeX && page.coordY == homeY
             database.pageEdgeDao().deleteInvolving(pageId)
             database.pageDao().update(page.copy(coordX = x, coordY = y))
-
-            val others = rows.filterNot { it.pageId == pageId }
-            primaryNeighbour(others, x, y)?.let { (neighbour, direction) ->
+            defaultLink?.let { (forward, _) ->
                 database.pageEdgeDao().insert(
-                    PageEdgeEntity(pageId, direction, neighbour.pageId),
+                    PageEdgeEntity(pageId, forward.swipeDirection, forward.toPageId),
+                )
+                database.pageEdgeDao().insert(
+                    PageEdgeEntity(
+                        forward.toPageId,
+                        PageLinks.opposite(forward.swipeDirection),
+                        pageId,
+                    ),
                 )
             }
             HomeUpdate(ok = true, newCoord = if (wasHome) x to y else null)
@@ -191,21 +250,6 @@ class LauncherRepository(
             page.coordY == VoidDatabase.ORIGIN_COORD_Y
         ) return
         database.pageDao().delete(page)
-    }
-
-    suspend fun setEdge(fromPageId: Long, direction: SwipeDirection, toPageId: Long) {
-        database.pageEdgeDao().insert(
-            PageEdgeEntity(
-                fromPageId = fromPageId,
-                swipeDirection = direction,
-                toPageId = toPageId,
-            ),
-        )
-    }
-
-    suspend fun removeEdge(fromPageId: Long, direction: SwipeDirection) {
-        val edge = database.pageEdgeDao().getEdgeOnce(fromPageId, direction) ?: return
-        database.pageEdgeDao().delete(edge)
     }
 
     /**
