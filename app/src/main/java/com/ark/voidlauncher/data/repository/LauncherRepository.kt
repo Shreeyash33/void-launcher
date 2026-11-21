@@ -31,6 +31,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
+/** Diagnostics from a backup restore. */
+data class RestoreResult(
+    val skippedEdges: Int = 0,
+    val skippedItems: Int = 0,
+    val synthesizedPages: Int = 0,
+    val linkedPairs: Int = 0,
+)
+
 /** Result of a Room-only transaction whose preference write must happen after commit. */
 private data class HomeUpdate(val ok: Boolean, val newCoord: Pair<Int, Int>?)
 
@@ -486,10 +494,14 @@ class LauncherRepository(
      * edges are remapped through the old-to-new id table and items are addressed
      * by stable page coordinates. Widgets become placeholders needing rebinding.
      */
-    suspend fun restore(payload: BackupPayload) {
-        database.withTransaction {
+    suspend fun restore(payload: BackupPayload): RestoreResult {
+        val result = database.withTransaction {
             database.pageDao().deleteAll()
             database.appCustomizationDao().deleteAll()
+
+            var synthesizedPages = 0
+            var skippedEdges = 0
+            var skippedItems = 0
 
             val idMap = mutableMapOf<Long, Long>()
             payload.pages.forEach { page ->
@@ -518,6 +530,7 @@ class LauncherRepository(
                     ),
                 )
                 idMap.putIfAbsent(VoidDatabase.ORIGIN_PAGE_ID, originId)
+                synthesizedPages++
             }
 
             // Every logical link contributes two directed rows. Collect them once so
@@ -533,12 +546,15 @@ class LauncherRepository(
                 val y = VoidDatabase.APP_DRAWER_COORD_Y
                 val occupant = database.pageDao().getByCoordOnce(x, y)
                 val drawerId = when {
-                    occupant == null -> database.pageDao().insert(
-                        PageEntity(
-                            coordX = x, coordY = y, title = "App drawer",
-                            pageType = PageType.APP_DRAWER,
-                        ),
-                    )
+                    occupant == null -> {
+                        synthesizedPages++
+                        database.pageDao().insert(
+                            PageEntity(
+                                coordX = x, coordY = y, title = "App drawer",
+                                pageType = PageType.APP_DRAWER,
+                            ),
+                        )
+                    }
                     occupant.pageType != PageType.HOME -> {
                         database.pageDao().update(
                             occupant.copy(pageType = PageType.APP_DRAWER),
@@ -568,9 +584,12 @@ class LauncherRepository(
             }
 
             payload.edges.forEach { edge ->
-                val from = idMap[edge.fromPageId] ?: return@forEach
-                val to = idMap[edge.toPageId] ?: return@forEach
-                if (from == to) return@forEach
+                val from = idMap[edge.fromPageId]
+                val to = idMap[edge.toPageId]
+                if (from == null || to == null || from == to) {
+                    skippedEdges++
+                    return@forEach
+                }
                 PageLinks.link(from, edge.swipeDirection, to).toList()
                     .forEach { restoredEdges.add(it) }
             }
@@ -583,7 +602,11 @@ class LauncherRepository(
             payload.items.forEach { item ->
                 val pageId = database.pageDao().getByCoordOnce(
                     item.pageCoordX, item.pageCoordY,
-                )?.pageId ?: return@forEach
+                )?.pageId
+                if (pageId == null) {
+                    skippedItems++
+                    return@forEach
+                }
                 val referenceId = when {
                     // Built-ins carry a stable sentinel and need no rebind.
                     item.widgetKind != null -> item.referenceId
@@ -608,8 +631,16 @@ class LauncherRepository(
             }
 
             payload.customizations.forEach { database.appCustomizationDao().insert(it) }
+
+            RestoreResult(
+                skippedEdges = skippedEdges,
+                skippedItems = skippedItems,
+                synthesizedPages = synthesizedPages,
+                linkedPairs = restoredEdges.size / 2,
+            )
         }
         setHomeCoord(payload.homeCoordX, payload.homeCoordY)
         runCatching { prefs.setTheme(ThemeMode.valueOf(payload.theme)) }
+        return result
     }
 }

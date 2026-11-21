@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.ark.voidlauncher.data.backup.BackupManager
 import com.ark.voidlauncher.data.backup.BackupPayload
+import com.ark.voidlauncher.data.backup.BackupValidator
 import com.ark.voidlauncher.data.backup.BackedUpBackground
 import com.ark.voidlauncher.data.backup.BackedUpItem
 import com.ark.voidlauncher.data.background.BackgroundRepository
@@ -277,34 +278,40 @@ class MainActivity : ComponentActivity() {
                         .getOrNull()
                     if (payload == null) {
                         message = "INVALID OR UNSUPPORTED BACKUP FILE"
-                    } else {
-                        val coreRestored = runCatching { repository.restore(payload) }.isSuccess
-                        if (!coreRestored) {
-                            message = "RESTORE FAILED"
-                        } else {
-                            pageHistory.clear()
-                            currentPageId = repository.homePageId.first()
-                            // P8/P9 preferences are not touched by LauncherRepository.restore
-                            // (it only restores theme). Apply them here with safe defaults.
-                            runCatching {
-                                val orientation = runCatching {
-                                    OrientationMode.valueOf(payload.orientation)
-                                }.getOrDefault(OrientationMode.PORTRAIT)
-                                prefs.setOrientation(orientation)
-                                prefs.setShowCoordinateDetail(payload.showCoordinateDetail)
-                                payload.customPalette?.let { prefs.setCustomPalette(it) }
-                            }
-                            // P10 backgrounds are restored by fresh page coordinates because
-                            // restore() regenerates all Room page ids.
-                            val backgroundsRestored = runCatching {
-                                restoreBackgrounds(payload.backgrounds, database, backgroundRepository)
-                            }.isSuccess
-                            message = if (backgroundsRestored) {
-                                "BACKUP RESTORED"
-                            } else {
-                                "BACKUP RESTORED (SOME BACKGROUNDS SKIPPED)"
-                            }
-                        }
+                        return@launch
+                    }
+                    val validation = BackupValidator.validate(payload)
+                    if (!validation.isValid) {
+                        message = "INVALID BACKUP DATA: ${validation.errors.first()}"
+                        return@launch
+                    }
+                    val restored = runCatching { repository.restore(payload) }.getOrNull()
+                    if (restored == null) {
+                        message = "RESTORE FAILED"
+                        return@launch
+                    }
+                    pageHistory.clear()
+                    currentPageId = repository.homePageId.first()
+                    // P8/P9 preferences are not touched by LauncherRepository.restore
+                    // (it only restores theme). Apply them here with safe defaults.
+                    runCatching {
+                        val orientation = runCatching {
+                            OrientationMode.valueOf(payload.orientation)
+                        }.getOrDefault(OrientationMode.PORTRAIT)
+                        prefs.setOrientation(orientation)
+                        prefs.setShowCoordinateDetail(payload.showCoordinateDetail)
+                        payload.customPalette?.let { prefs.setCustomPalette(it) }
+                    }
+                    // P10 backgrounds are restored by fresh page coordinates because
+                    // restore() regenerates all Room page ids.
+                    val skippedBackgrounds = runCatching {
+                        restoreBackgrounds(payload.backgrounds, database, backgroundRepository)
+                    }.fold(onSuccess = { it }, onFailure = { 1 })
+                    val skipped = restored.skippedEdges + restored.skippedItems + skippedBackgrounds
+                    message = when {
+                        skipped > 0 -> "BACKUP RESTORED ($skipped ITEMS SKIPPED)"
+                        restored.synthesizedPages > 0 -> "BACKUP RESTORED (PAGES SYNTHESIZED)"
+                        else -> "BACKUP RESTORED (${restored.linkedPairs} LINKS)"
                     }
                 }
             }
@@ -1333,23 +1340,25 @@ private const val MAX_BACKUP_IMAGE_BYTES = 2 * 1024 * 1024
  * Restores P10 backgrounds after the core restore has regenerated all page ids.
  * Page-scoped records are re-linked through their coordinates, matching how
  * [BackedUpItem] survives a restore. Image bytes are re-imported into internal
- * storage under their original stable token.
+ * storage under their original stable token. Returns the number of skipped rows.
  */
 private suspend fun restoreBackgrounds(
     entries: List<BackedUpBackground>,
     database: VoidDatabase,
     repository: BackgroundRepository,
-) {
+): Int {
     // An empty array is an intentional "clear all backgrounds" instruction.
+    var skipped = 0
     val restored = entries.mapNotNull { entry ->
         val scope = runCatching { BackgroundScope.valueOf(entry.scope) }.getOrNull()
-            ?: return@mapNotNull null
+            ?: run { skipped++; return@mapNotNull null }
         val kind = runCatching { BackgroundKind.valueOf(entry.kind) }.getOrNull()
-            ?: return@mapNotNull null
+            ?: run { skipped++; return@mapNotNull null }
         val pageId = if (scope == BackgroundScope.PAGE) {
-            val x = entry.pageCoordX ?: return@mapNotNull null
-            val y = entry.pageCoordY ?: return@mapNotNull null
-            database.pageDao().getByCoordOnce(x, y)?.pageId ?: return@mapNotNull null
+            val x = entry.pageCoordX ?: run { skipped++; return@mapNotNull null }
+            val y = entry.pageCoordY ?: run { skipped++; return@mapNotNull null }
+            database.pageDao().getByCoordOnce(x, y)?.pageId
+                ?: run { skipped++; return@mapNotNull null }
         } else {
             null
         }
@@ -1367,11 +1376,18 @@ private suspend fun restoreBackgrounds(
     entries.forEach { entry ->
         val token = entry.imageToken ?: return@forEach
         val encoded = entry.imageBase64 ?: return@forEach
-        runCatching {
+        val ok = runCatching {
             val bytes = Base64.decode(encoded, Base64.DEFAULT)
-            repository.importImage(token, bytes)
-        }
+            if (bytes.size > MAX_BACKUP_IMAGE_BYTES) {
+                false
+            } else {
+                repository.importImage(token, bytes)
+                true
+            }
+        }.getOrDefault(false)
+        if (!ok) skipped++
     }
+    return skipped
 }
 
 /** Applies the one-hop overflow rule using the directed edge table. */
