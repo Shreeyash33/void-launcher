@@ -71,6 +71,19 @@ class EditorValidationLinkTest {
     }
 
     @Test
+    fun `replacing a slot retires the old reverse before validating`() {
+        val pages = listOf(page(1, 0, 0), page(2, 1, 0), page(3, 0, 1)) // home = 1
+        val edges = bothRows(1, SwipeDirection.RIGHT, 2)
+
+        // Page 2 loses its only link when the RIGHT slot is redirected to page 3.
+        assertTrue(
+            EditorValidation.linkChangeStrandsAdditionalPages(
+                pages, edges, 1, LinkChange.SetLink(1, SwipeDirection.RIGHT, 3),
+            ),
+        )
+    }
+
+    @Test
     fun `link changes referencing unknown pages are rejected`() {
         val pages = listOf(page(1, 0, 0), page(2, 1, 0))
         val edges = bothRows(2, SwipeDirection.LEFT, 1)

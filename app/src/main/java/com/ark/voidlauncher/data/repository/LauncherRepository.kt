@@ -264,18 +264,16 @@ class LauncherRepository(
             ) {
                 return@withTransaction false
             }
-            // Replacing a slot must also retire the reverse row of the old link,
-            // otherwise the graph keeps a half-link pointing at the previous target.
+            // Replacing a slot must retire both the old outgoing row and every
+            // reverse-direction row pointing back into this page. Without the
+            // second pass, legacy half-links from a different neighbour survive.
             database.pageEdgeDao().getEdgeOnce(fromPageId, direction)?.let { previous ->
-                val oldReverse = PageLinks.link(
-                    previous.fromPageId, previous.swipeDirection, previous.toPageId,
-                ).second
-                database.pageEdgeDao().delete(
-                    PageEdgeEntity(
-                        oldReverse.fromPageId, oldReverse.swipeDirection, oldReverse.toPageId,
-                    ),
-                )
+                database.pageEdgeDao().delete(previous)
             }
+            database.pageEdgeDao()
+                .getIncomingByDirectionOnce(fromPageId, PageLinks.opposite(direction))
+                .filter { it.fromPageId != toPageId }
+                .forEach { stale -> database.pageEdgeDao().delete(stale) }
             listOf(outgoing, reverse).forEach { edge ->
                 database.pageEdgeDao().insert(
                     PageEdgeEntity(edge.fromPageId, edge.swipeDirection, edge.toPageId),

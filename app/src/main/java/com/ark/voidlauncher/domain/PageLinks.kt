@@ -48,6 +48,30 @@ object PageLinks {
     }
 
     /**
+     * Returns a copy of [edges] with the slot `[fromPageId, direction]` replaced by
+     * a complete new link to [toPageId].
+     *
+     * This mirrors the repository write exactly: the old outgoing row, every
+     * reverse-direction row pointing back into [fromPageId], and any duplicate of
+     * the new pair are removed before the fresh pair is added. Validation can use
+     * this helper without drifting from persistence.
+     */
+    fun replaceLink(
+        edges: List<EdgeInfo>,
+        fromPageId: Long,
+        direction: SwipeDirection,
+        toPageId: Long,
+    ): List<EdgeInfo> {
+        val (forward, reverse) = link(fromPageId, direction, toPageId)
+        val backDirection = opposite(direction)
+        return edges.filterNot { edge ->
+            (edge.fromPageId == fromPageId && edge.swipeDirection == direction) ||
+                (edge.toPageId == fromPageId && edge.swipeDirection == backDirection) ||
+                edge == forward || edge == reverse
+        } + forward + reverse
+    }
+
+    /**
      * Returns a copy of [edges] without either directed row of the link.
      * Unrelated edges (including other directions between the same pages)
      * are preserved, and the input list is never modified.

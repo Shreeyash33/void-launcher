@@ -114,9 +114,9 @@ object EditorValidation {
         val proposedEdges = when (change) {
             is LinkChange.SetLink -> {
                 if (change.fromPageId !in pageIds || change.toPageId !in pageIds) return true
-                PageLinks.withoutLink(
+                PageLinks.replaceLink(
                     edges, change.fromPageId, change.direction, change.toPageId,
-                ) + PageLinks.link(change.fromPageId, change.direction, change.toPageId).toList()
+                )
             }
 
             is LinkChange.RemoveLink -> {

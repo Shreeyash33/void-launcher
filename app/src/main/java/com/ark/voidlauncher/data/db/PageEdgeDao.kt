@@ -38,6 +38,12 @@ interface PageEdgeDao {
     @Query("SELECT * FROM page_edges WHERE fromPageId = :fromPageId AND swipeDirection = :direction")
     suspend fun getEdgeOnce(fromPageId: Long, direction: SwipeDirection): PageEdgeEntity?
 
+    @Query("SELECT * FROM page_edges WHERE toPageId = :toPageId AND swipeDirection = :direction")
+    suspend fun getIncomingByDirectionOnce(
+        toPageId: Long,
+        direction: SwipeDirection,
+    ): List<PageEdgeEntity>
+
     @Query("DELETE FROM page_edges WHERE fromPageId = :fromPageId")
     suspend fun deleteOutgoing(fromPageId: Long)
 

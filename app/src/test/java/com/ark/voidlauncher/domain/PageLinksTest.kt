@@ -59,6 +59,22 @@ class PageLinksTest {
     }
 
     @Test
+    fun replaceLinkRetiresOldSlotAndEveryReverseRow() {
+        val oldLink = PageLinks.link(10L, SwipeDirection.RIGHT, 20L)
+        val newLink = PageLinks.link(10L, SwipeDirection.RIGHT, 30L)
+        val strayReverse = EdgeInfo(40L, SwipeDirection.LEFT, 10L)
+        val unrelated = EdgeInfo(10L, SwipeDirection.LEFT, 50L)
+        val edges = listOf(oldLink.first, oldLink.second, strayReverse, unrelated)
+
+        assertEquals(
+            listOf(unrelated) + newLink.toList(),
+            PageLinks.replaceLink(edges, 10L, SwipeDirection.RIGHT, 30L),
+        )
+        // The input is never mutated.
+        assertEquals(4, edges.size)
+    }
+
+    @Test
     fun isCompleteIsTrueWhenBothDirectedRowsExist() {
         val outgoing = EdgeInfo(10L, SwipeDirection.RIGHT, 20L)
         val reverse = EdgeInfo(20L, SwipeDirection.LEFT, 10L)
