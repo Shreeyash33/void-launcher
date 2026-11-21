@@ -21,7 +21,7 @@ object CustomWidgetBundleValidator {
     private const val MAX_PAYLOAD_BYTES = 256 * 1024
 
     private val EXTERNAL_RESOURCE = Regex(
-        """(?i)(<iframe\b|<img\b|<link\b|<script[^>]*\bsrc\s*=|url\s*\(|https?://|file://|content://|javascript:)""",
+        """(?i)(<iframe\b|<object\b|<embed\b|<source\b|<img\b|<link\b|<base\b|<script[^>]*\bsrc\s*=|<audio\b|<video\b|url\s*\(|@import|https?://|file://|content://|data:|javascript:|\bfetch\s*\()""",
     )
 
     fun validate(bundle: CustomWidgetBundle): CustomWidgetValidationResult =

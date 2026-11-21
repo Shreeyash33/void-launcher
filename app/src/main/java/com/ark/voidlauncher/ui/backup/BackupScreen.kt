@@ -36,8 +36,10 @@ private const val MutedAlpha = 0.55f
 @Composable
 fun BackupScreen(
     status: String?,
-    onExport: () -> Unit,
-    onImport: () -> Unit,
+    onExportLayout: () -> Unit,
+    onExportWidgets: () -> Unit,
+    onExportInventory: () -> Unit,
+    onImportFiles: () -> Unit,
     onBack: () -> Unit,
 ) {
     var confirmImport by remember { mutableStateOf(false) }
@@ -59,13 +61,23 @@ fun BackupScreen(
         HorizontalDivider(color = scheme.onBackground.copy(alpha = HairlineAlpha))
 
         BackupRow(
-            label = "EXPORT",
-            caption = "Save launcher state to a JSON file.",
-            onClick = onExport,
+            label = "EXPORT LAYOUT",
+            caption = "Save pages, links, widgets and settings to voidlauncher-backup.json.",
+            onClick = onExportLayout,
         )
         BackupRow(
-            label = "IMPORT",
-            caption = "Restore launcher state from a JSON file.",
+            label = "EXPORT WIDGET BUNDLE",
+            caption = "Save custom widget definitions to voidlauncher-widgets.json.",
+            onClick = onExportWidgets,
+        )
+        BackupRow(
+            label = "EXPORT DEVICE INVENTORY",
+            caption = "Save this device's apps and widget providers for the web editor.",
+            onClick = onExportInventory,
+        )
+        BackupRow(
+            label = "IMPORT FILES",
+            caption = "Select a layout and/or widget bundle together. Unknown files are rejected.",
             onClick = { confirmImport = true },
         )
         BackupRow(
@@ -92,8 +104,9 @@ fun BackupScreen(
 
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "WIDGETS: imported widgets are placeholders. Only the provider is stored, " +
-                "never the live widget ID. Rebind each widget after a restore.",
+            text = "WIDGETS: layouts carry stable references only. System widgets are rebound " +
+                "after restore; custom widgets run from the imported bundle or show a missing tile. " +
+                "Never import bundles from sources you do not trust.",
             style = MaterialTheme.typography.labelSmall,
             color = scheme.onSurface.copy(alpha = MutedAlpha),
         )
@@ -113,8 +126,9 @@ fun BackupScreen(
             },
             text = {
                 Text(
-                    text = "Importing replaces the current pages, edges, items and customizations. " +
-                        "Export first if you want to keep them.",
+                    text = "A layout file replaces pages, edges, items and customizations. " +
+                        "A widget bundle replaces custom widget definitions. " +
+                        "Export first if you want to keep either.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             },
@@ -122,7 +136,7 @@ fun BackupScreen(
                 TextButton(
                     onClick = {
                         confirmImport = false
-                        onImport()
+                        onImportFiles()
                     },
                 ) {
                     Text(text = "IMPORT", style = MaterialTheme.typography.labelLarge)

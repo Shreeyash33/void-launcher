@@ -59,11 +59,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.ark.voidlauncher.data.backup.BackupDocumentClassifier
+import com.ark.voidlauncher.data.backup.BackupDocumentKind
 import com.ark.voidlauncher.data.backup.BackupManager
 import com.ark.voidlauncher.data.backup.BackupPayload
 import com.ark.voidlauncher.data.backup.BackupValidator
 import com.ark.voidlauncher.data.backup.BackedUpBackground
 import com.ark.voidlauncher.data.backup.BackedUpItem
+import com.ark.voidlauncher.data.backup.CustomWidgetBundleManager
+import com.ark.voidlauncher.data.backup.CustomWidgetBundleValidator
+import com.ark.voidlauncher.data.backup.DeviceInventory
+import com.ark.voidlauncher.data.backup.DeviceInventoryManager
+import com.ark.voidlauncher.data.backup.InventoryApp
+import com.ark.voidlauncher.data.backup.InventorySystemWidget
 import com.ark.voidlauncher.data.background.BackgroundRepository
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.data.db.VoidDatabase
@@ -71,7 +79,9 @@ import com.ark.voidlauncher.data.migration.DataStoreToRoomMigration
 import com.ark.voidlauncher.data.repository.LauncherRepository
 import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.BuiltInWidgets
+import com.ark.voidlauncher.domain.CUSTOM_WIDGET_RUNTIME_WEBVIEW
 import com.ark.voidlauncher.domain.CustomPalette
+import com.ark.voidlauncher.domain.CustomWidgetBundle
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.displayTitle
 import com.ark.voidlauncher.domain.GestureAction
@@ -121,12 +131,20 @@ import com.ark.voidlauncher.ui.theme.GlassPanel
 import com.ark.voidlauncher.ui.theme.ThemePickerSheet
 import com.ark.voidlauncher.ui.theme.ThemedSystemBars
 import com.ark.voidlauncher.ui.theme.VoidTheme
+import com.ark.voidlauncher.ui.widgets.CustomWebViewWidget
+import com.ark.voidlauncher.ui.widgets.MissingCustomWidget
+import com.ark.voidlauncher.ui.widgets.UnknownWidgetReference
+import kotlin.math.ceil
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 private enum class Screen { HOME, SETTINGS, WIDGET_PICKER, BACKUP }
@@ -157,6 +175,9 @@ class MainActivity : ComponentActivity() {
             val showCoordinateDetail by prefs.showCoordinateDetail.collectAsState(initial = true)
             val gestureBindings by prefs.gestureBindings.collectAsState(
                 initial = GestureBindings(),
+            )
+            val customWidgets by prefs.customWidgetBundle.collectAsState(
+                initial = CustomWidgetBundle(),
             )
             val backgroundRepository = remember { BackgroundRepository(database, context) }
             val repository = remember {
@@ -199,6 +220,31 @@ class MainActivity : ComponentActivity() {
             var backgroundDraft by remember { mutableStateOf<PageBackground?>(null) }
             val pendingRebindItemId = remember { mutableStateOf<Long?>(null) }
             val accessibilityEnabled = remember { AccessibilityBridge.isEnabled(context) }
+
+            /** Snapshot of apps/providers this device can actually render. */
+            fun buildDeviceInventory(): DeviceInventory {
+                val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+                    .apply { timeZone = TimeZone.getTimeZone("UTC") }
+                    .format(Date())
+                val systemWidgets = widgetController.installedProviders().mapNotNull { info ->
+                    val provider = info.provider?.flattenToString() ?: return@mapNotNull null
+                    val label = runCatching {
+                        info.loadLabel(context.packageManager).toString()
+                    }.getOrDefault(provider).ifBlank { provider }
+                    InventorySystemWidget(
+                        provider = provider,
+                        label = label,
+                        minColSpan = maxOf(1, ceil(info.minWidth / 40f).toInt()),
+                        minRowSpan = maxOf(1, ceil(info.minHeight / 40f).toInt()),
+                    )
+                }.sortedBy { it.label.lowercase(Locale.US) }
+                return DeviceInventory(
+                    generatedAt = timestamp,
+                    builtInWidgets = BuiltInWidgetKind.entries.map { it.name },
+                    apps = apps.map { InventoryApp(it.packageName, it.label) },
+                    systemWidgets = systemWidgets,
+                )
+            }
 
             val exportLauncher = rememberLauncherForActivityResult(
                 ActivityResultContracts.CreateDocument("application/json"),
@@ -246,16 +292,19 @@ class MainActivity : ComponentActivity() {
                                 row = item.row,
                                 colSpan = item.colSpan,
                                 rowSpan = item.rowSpan,
-                                referenceId = if (
-                                    item.itemType == GridItemType.WIDGET &&
-                                    item.widgetKind == null
-                                ) {
-                                    val raw = item.referenceId.removePrefix(WidgetReference.PLACEHOLDER_PREFIX)
-                                    raw.toIntOrNull()?.let { id ->
-                                        widgetController.providerInfo(id)?.provider?.flattenToString()
-                                    } ?: raw
-                                } else {
-                                    item.referenceId
+                                referenceId = run {
+                                    val customId = WidgetReference.customId(item.referenceId)
+                                    when {
+                                        customId != null -> WidgetReference.customReference(customId)
+                                        item.itemType == GridItemType.WIDGET &&
+                                            item.widgetKind == null -> {
+                                            val raw = WidgetReference.unwrap(item.referenceId)
+                                            raw.toIntOrNull()?.let { id ->
+                                                widgetController.providerInfo(id)?.provider?.flattenToString()
+                                            } ?: raw
+                                        }
+                                        else -> item.referenceId
+                                    }
                                 },
                                 allowOverlap = item.allowOverlap,
                                 widgetKind = item.widgetKind,
@@ -281,54 +330,158 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            val importLauncher = rememberLauncherForActivityResult(
-                ActivityResultContracts.OpenDocument(),
+            val exportWidgetBundleLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json"),
             ) { uri ->
                 if (uri == null) return@rememberLauncherForActivityResult
                 scope.launch {
-                    val payload = runCatching { BackupManager.readFromUri(context, uri) }
-                        .getOrNull()
-                    if (payload == null) {
-                        message = "INVALID OR UNSUPPORTED BACKUP FILE"
-                        return@launch
-                    }
-                    val validation = BackupValidator.validate(payload)
-                    if (!validation.isValid) {
-                        message = "INVALID BACKUP DATA: ${validation.errors.first()}"
-                        return@launch
-                    }
-                    val restored = runCatching { repository.restore(payload) }.getOrNull()
-                    if (restored == null) {
-                        message = "RESTORE FAILED"
-                        return@launch
-                    }
-                    pageHistory.clear()
-                    currentPageId = repository.homePageId.first()
-                    // P8/P9 preferences are not touched by LauncherRepository.restore
-                    // (it only restores theme). Apply them here with safe defaults.
-                    runCatching {
-                        val orientation = runCatching {
-                            OrientationMode.valueOf(payload.orientation)
-                        }.getOrDefault(OrientationMode.PORTRAIT)
-                        prefs.setOrientation(orientation)
-                        prefs.setShowCoordinateDetail(payload.showCoordinateDetail)
-                        if (payload.customPalette != null) {
-                            prefs.setCustomPalette(payload.customPalette)
+                    message = runCatching {
+                        if (CustomWidgetBundleManager.writeToUri(context, uri, customWidgets)) {
+                            "WIDGET BUNDLE EXPORTED (${customWidgets.widgets.size} WIDGETS)"
                         } else {
-                            prefs.clearCustomPalette()
+                            "EXPORT FAILED"
+                        }
+                    }.getOrDefault("EXPORT FAILED")
+                }
+            }
+
+            val exportInventoryLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json"),
+            ) { uri ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                scope.launch {
+                    val inventory = buildDeviceInventory()
+                    message = runCatching {
+                        if (DeviceInventoryManager.writeToUri(context, uri, inventory)) {
+                            "DEVICE INVENTORY EXPORTED (" +
+                                "${inventory.apps.size} APPS, ${inventory.systemWidgets.size} WIDGETS)"
+                        } else {
+                            "EXPORT FAILED"
+                        }
+                    }.getOrDefault("EXPORT FAILED")
+                }
+            }
+
+            val importLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.GetMultipleContents(),
+            ) { uris ->
+                if (uris.isEmpty()) return@rememberLauncherForActivityResult
+                scope.launch {
+                    val documents = withContext(Dispatchers.IO) {
+                        uris.mapNotNull { uri ->
+                            val text = runCatching {
+                                context.contentResolver.openInputStream(uri)?.use { input ->
+                                    input.readBytes().toString(Charsets.UTF_8)
+                                }
+                            }.getOrNull()
+                            text?.let { BackupDocumentClassifier.classify(it) to it }
                         }
                     }
-                    // P10 backgrounds are restored by fresh page coordinates because
-                    // restore() regenerates all Room page ids.
-                    val skippedBackgrounds = runCatching {
-                        restoreBackgrounds(payload.backgrounds, database, backgroundRepository)
-                    }.fold(onSuccess = { it }, onFailure = { 1 })
-                    val skipped = restored.skippedEdges + restored.skippedItems + skippedBackgrounds
-                    message = when {
-                        skipped > 0 -> "BACKUP RESTORED ($skipped ITEMS SKIPPED)"
-                        restored.synthesizedPages > 0 -> "BACKUP RESTORED (PAGES SYNTHESIZED)"
-                        else -> "BACKUP RESTORED (${restored.linkedPairs} LINKS)"
+                    if (documents.isEmpty()) {
+                        message = "NO READABLE DOCUMENTS"
+                        return@launch
                     }
+                    if (documents.any { it.first == BackupDocumentKind.UNKNOWN }) {
+                        message = "UNKNOWN BACKUP DOCUMENT"
+                        return@launch
+                    }
+
+                    val inventoryNote = if (documents.any {
+                            it.first == BackupDocumentKind.DEVICE_INVENTORY
+                        }
+                    ) {
+                        "INVENTORY FILES BELONG TO THE WEB EDITOR"
+                    } else {
+                        null
+                    }
+
+                    // Validate every selected document before mutating either store.
+                    var pendingBundle: CustomWidgetBundle? = null
+                    var pendingBundleNote: String? = null
+                    val bundleDocuments = documents.filter { it.first == BackupDocumentKind.WIDGET_BUNDLE }
+                    if (bundleDocuments.size > 1) {
+                        message = "MULTIPLE WIDGET BUNDLES SELECTED"
+                        return@launch
+                    }
+                    if (bundleDocuments.size == 1) {
+                        val bundle = CustomWidgetBundleManager.fromJson(bundleDocuments[0].second)
+                        if (bundle == null) {
+                            message = "INVALID OR UNSUPPORTED WIDGET BUNDLE FILE"
+                            return@launch
+                        }
+                        val validation = CustomWidgetBundleValidator.validate(bundle)
+                        if (!validation.isValid) {
+                            message = "INVALID WIDGET BUNDLE: ${validation.errors.first()}"
+                            return@launch
+                        }
+                        pendingBundle = bundle
+                        pendingBundleNote = "WIDGET BUNDLE IMPORTED (${bundle.widgets.size} WIDGETS)"
+                    }
+
+                    val layoutDocuments = documents.filter { it.first == BackupDocumentKind.LAYOUT }
+                    if (layoutDocuments.size > 1) {
+                        message = "MULTIPLE LAYOUT FILES SELECTED"
+                        return@launch
+                    }
+                    val payload = if (layoutDocuments.isEmpty()) {
+                        null
+                    } else {
+                        val parsed = BackupManager.fromJson(layoutDocuments[0].second)
+                        if (parsed == null) {
+                            message = "INVALID OR UNSUPPORTED BACKUP FILE"
+                            return@launch
+                        }
+                        val validation = BackupValidator.validate(parsed)
+                        if (!validation.isValid) {
+                            message = "INVALID BACKUP DATA: ${validation.errors.first()}"
+                            return@launch
+                        }
+                        parsed
+                    }
+
+                    var layoutNote: String? = null
+                    if (payload != null) {
+                        val restored = runCatching { repository.restore(payload) }.getOrNull()
+                        if (restored == null) {
+                            message = "RESTORE FAILED"
+                            return@launch
+                        }
+                        pageHistory.clear()
+                        currentPageId = repository.homePageId.first()
+                        // P8/P9 preferences are not touched by LauncherRepository.restore
+                        // (it only restores theme). Apply them here with safe defaults.
+                        runCatching {
+                            val orientation = runCatching {
+                                OrientationMode.valueOf(payload.orientation)
+                            }.getOrDefault(OrientationMode.PORTRAIT)
+                            prefs.setOrientation(orientation)
+                            prefs.setShowCoordinateDetail(payload.showCoordinateDetail)
+                            if (payload.customPalette != null) {
+                                prefs.setCustomPalette(payload.customPalette)
+                            } else {
+                                prefs.clearCustomPalette()
+                            }
+                        }
+                        // P10 backgrounds are restored by fresh page coordinates because
+                        // restore() regenerates all Room page ids.
+                        val skippedBackgrounds = runCatching {
+                            restoreBackgrounds(payload.backgrounds, database, backgroundRepository)
+                        }.fold(onSuccess = { it }, onFailure = { 1 })
+                        val skipped = restored.skippedEdges + restored.skippedItems + skippedBackgrounds
+                        layoutNote = when {
+                            skipped > 0 -> "BACKUP RESTORED ($skipped ITEMS SKIPPED)"
+                            restored.synthesizedPages > 0 -> "BACKUP RESTORED (PAGES SYNTHESIZED)"
+                            else -> "BACKUP RESTORED (${restored.linkedPairs} LINKS)"
+                        }
+                    }
+
+                    val bundleNote = pendingBundle?.let { bundle ->
+                        val saved = runCatching { prefs.setCustomWidgetBundle(bundle) }
+                        if (saved.isFailure) "WIDGET BUNDLE SAVE FAILED" else pendingBundleNote
+                    }
+                    message = listOfNotNull(layoutNote, bundleNote, inventoryNote)
+                        .joinToString(" / ")
+                        .ifBlank { "NOTHING TO IMPORT" }
                 }
             }
 
@@ -673,12 +826,23 @@ class MainActivity : ComponentActivity() {
 
             fun resizeCanvasItem(geometry: GridGeometry): Boolean {
                 val item = items.firstOrNull { it.itemId == selectedCanvasItemId } ?: return false
+                val definition = WidgetReference.customId(item.referenceId)?.let { id ->
+                    customWidgets.widgets.firstOrNull { it.id == id }
+                }
+                if (definition != null && !definition.allowResize &&
+                    (geometry.spanX != item.colSpan || geometry.spanY != item.rowSpan)
+                ) {
+                    message = "CUSTOM WIDGET IS FIXED SIZE"
+                    return false
+                }
+                val spanX = maxOf(definition?.minColSpan ?: 1, geometry.spanX)
+                val spanY = maxOf(definition?.minRowSpan ?: 1, geometry.spanY)
                 return commitCanvasPlacement(
                     item = item,
                     col = geometry.col,
                     row = geometry.row,
-                    colSpan = geometry.spanX,
-                    rowSpan = geometry.spanY,
+                    colSpan = spanX,
+                    rowSpan = spanY,
                 )
             }
 
@@ -738,13 +902,21 @@ class MainActivity : ComponentActivity() {
             }
 
             fun beginRebindWidget(item: GridItemEntity) {
+                if (WidgetReference.isCustom(item.referenceId)) {
+                    message = "CUSTOM WIDGETS REBIND FROM THEIR BUNDLE"
+                    return
+                }
                 if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
                     message = "WIDGETS REQUIRE ANDROID 8 OR NEWER"
                     return
                 }
+                val providerName = WidgetReference.portableProvider(item.referenceId)
+                if (providerName != null && !providerName.contains('/')) {
+                    message = "WIDGET CANNOT BE REBOUND"
+                    return
+                }
                 val id = widgetController.allocateAppWidgetId()
                 pendingRebindItemId.value = item.itemId
-                val providerName = WidgetReference.portableProvider(item.referenceId)
                 if (providerName != null) {
                     val provider = ComponentName.unflattenFromString(providerName)
                     if (provider != null) {
@@ -967,6 +1139,7 @@ class MainActivity : ComponentActivity() {
                                     items = items,
                                     currentPageId = currentPageId,
                                     widgetController = widgetController,
+                                    customWidgets = customWidgets,
                                     onPageChanged = { targetId, direction ->
                                         pageHistory.push(currentPageId, targetId, direction)
                                         currentPageId = targetId
@@ -1110,8 +1283,14 @@ class MainActivity : ComponentActivity() {
 
                         Screen.BACKUP -> BackupScreen(
                             status = message,
-                            onExport = { exportLauncher.launch("voidlauncher-backup.json") },
-                            onImport = { importLauncher.launch(arrayOf("application/json")) },
+                            onExportLayout = { exportLauncher.launch("voidlauncher-backup.json") },
+                            onExportWidgets = {
+                                exportWidgetBundleLauncher.launch(CustomWidgetBundleManager.FILE_NAME)
+                            },
+                            onExportInventory = {
+                                exportInventoryLauncher.launch(DeviceInventoryManager.FILE_NAME)
+                            },
+                            onImportFiles = { importLauncher.launch("application/json") },
                             onBack = { goBackScreen() },
                         )
 
@@ -1636,6 +1815,7 @@ private fun HomeScreen(
     items: List<GridItemEntity>,
     currentPageId: Long,
     widgetController: WidgetHostController,
+    customWidgets: CustomWidgetBundle = CustomWidgetBundle(),
     onPageChanged: (targetPageId: Long, storedDirection: SwipeDirection) -> Unit,
     reverseTarget: (currentPageId: Long, gestureDirection: SwipeDirection) -> Long? =
         { _, _ -> null },
@@ -1697,22 +1877,34 @@ private fun HomeScreen(
             floatingPoint = floatingPoint,
             widgetContent = { item ->
                 val builtIn = item.widgetKind ?: BuiltInWidgets.fromReference(item.referenceId)
-                when (builtIn) {
-                    BuiltInWidgetKind.CLOCK -> ClockWidgetContent()
-                    BuiltInWidgetKind.APP_LIST -> AppListWidgetContent(
+                val customId = WidgetReference.customId(item.referenceId)
+                when {
+                    builtIn == BuiltInWidgetKind.CLOCK -> ClockWidgetContent()
+                    builtIn == BuiltInWidgetKind.APP_LIST -> AppListWidgetContent(
                         packages = BuiltInWidgets.decodePackages(item.appListPackages),
                         apps = apps,
                     )
-                    null -> {
-                        val widgetId = item.referenceId.toIntOrNull()
-                        if (widgetId != null) {
-                            WidgetHostView(
+                    customId != null -> {
+                        val definition = customWidgets.widgets.firstOrNull { it.id == customId }
+                        when {
+                            definition == null -> MissingCustomWidget(customId)
+                            definition.runtime == CUSTOM_WIDGET_RUNTIME_WEBVIEW ->
+                                CustomWebViewWidget(definition, Modifier.fillMaxSize())
+                            else -> UnknownWidgetReference("${definition.runtime}:${definition.id}")
+                        }
+                    }
+                    else -> {
+                        val rawReference = WidgetReference.unwrap(item.referenceId)
+                        val widgetId = rawReference.toIntOrNull()
+                        val provider = WidgetReference.portableProvider(item.referenceId)
+                        when {
+                            widgetId != null -> WidgetHostView(
                                 controller = widgetController,
                                 appWidgetId = widgetId,
                                 modifier = Modifier.fillMaxSize(),
                             )
-                        } else {
-                            Text(
+                            provider != null && provider.contains('/') &&
+                                ComponentName.unflattenFromString(provider) != null -> Text(
                                 "REBIND WIDGET",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.primary,
@@ -1720,6 +1912,7 @@ private fun HomeScreen(
                                     .clickable { onRebindWidget(item) }
                                     .padding(8.dp),
                             )
+                            else -> UnknownWidgetReference(rawReference)
                         }
                     }
                 }

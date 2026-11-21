@@ -9,7 +9,9 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.ark.voidlauncher.data.backup.CustomWidgetBundleManager
 import com.ark.voidlauncher.domain.CustomPalette
+import com.ark.voidlauncher.domain.CustomWidgetBundle
 import com.ark.voidlauncher.domain.GestureAction
 import com.ark.voidlauncher.domain.GestureBinding
 import com.ark.voidlauncher.domain.GestureBindings
@@ -34,6 +36,7 @@ class LauncherPrefs(private val context: Context) {
         private val SHOW_COORDINATE_DETAIL = booleanPreferencesKey("show_coordinate_detail")
         private val GESTURE_BINDINGS_GLOBAL = stringSetPreferencesKey("gesture_bindings_global")
         private val GESTURE_BINDINGS_PAGES = stringSetPreferencesKey("gesture_bindings_pages")
+        private val CUSTOM_WIDGET_BUNDLE = stringPreferencesKey("custom_widget_bundle_v1")
 
         private val CUSTOM_BACKGROUND = stringPreferencesKey("custom_bg")
         private val CUSTOM_SURFACE = stringPreferencesKey("custom_surface")
@@ -156,6 +159,12 @@ class LauncherPrefs(private val context: Context) {
         prefs[SHOW_COORDINATE_DETAIL] ?: true
     }
 
+    /** Sidecar widget definitions; an unreadable value falls back to an empty bundle. */
+    val customWidgetBundle: Flow<CustomWidgetBundle> = context.dataStore.data.map { prefs ->
+        prefs[CUSTOM_WIDGET_BUNDLE]?.let(CustomWidgetBundleManager::fromJson)
+            ?: CustomWidgetBundle()
+    }
+
     /** Persisted gesture bindings; page entries take precedence over globals. */
     val gestureBindings: Flow<GestureBindings> = context.dataStore.data.map { prefs ->
         val global = (prefs[GESTURE_BINDINGS_GLOBAL] ?: emptySet())
@@ -197,6 +206,15 @@ class LauncherPrefs(private val context: Context) {
     suspend fun setShowCoordinateDetail(show: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[SHOW_COORDINATE_DETAIL] = show
+        }
+    }
+
+    /** Replaces all custom widget definitions with a validated version-1 bundle. */
+    suspend fun setCustomWidgetBundle(bundle: CustomWidgetBundle) {
+        val json = CustomWidgetBundleManager.toJson(bundle)
+        if (json.isEmpty()) return
+        context.dataStore.edit { prefs ->
+            prefs[CUSTOM_WIDGET_BUNDLE] = json
         }
     }
 
