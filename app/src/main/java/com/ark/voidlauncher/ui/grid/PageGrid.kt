@@ -2,8 +2,6 @@ package com.ark.voidlauncher.ui.grid
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -29,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -43,7 +40,6 @@ import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.GridItemType
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 /**
@@ -276,6 +272,10 @@ private fun EditableGridItem(
     val base = GridGeometry(item.col, item.row, item.colSpan, item.rowSpan)
     val hasAction = item.widgetKind == BuiltInWidgetKind.APP_LIST ||
         BuiltInWidgets.fromReference(item.referenceId) == BuiltInWidgetKind.APP_LIST
+    // In normal mode APP_LIST rows own both taps and long-press, so the full-size
+    // gesture overlay would only swallow their clicks. Editing still needs the
+    // overlay for selection and the top-right MENU action zone.
+    val contentOwnsGestures = !editing && hasAction
     val boxWidth = cellWidth * state.geometry.spanX.coerceAtLeast(1)
 
     LaunchedEffect(item.itemId, item.col, item.row, item.colSpan, item.rowSpan) {
@@ -328,50 +328,21 @@ private fun EditableGridItem(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .semantics {
-                    contentDescription = "GRID ITEM ${item.itemType.name} " +
-                        "${item.referenceId} AT ${item.col},${item.row}"
-                }
-                .pointerInput(item.itemId, hasAction, boxWidth, onTap, onLongPress, editing) {
-                    if (!editing && hasAction) {
-                        // APP_LIST rows in widgetContent own plain taps and the
-                        // action zone. Only long press is handled here, without
-                        // consuming the down/up of ordinary taps.
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val pointerId = down.id
-                            val slop = viewConfiguration.touchSlop
-                            // The scope's timeout is safe inside awaitEachGesture;
-                            // null means the press survived to the long-press delay.
-                            val longPressed = withTimeoutOrNull(
-                                viewConfiguration.longPressTimeoutMillis,
-                            ) {
-                                var waiting = true
-                                while (waiting) {
-                                    val event = awaitPointerEvent(PointerEventPass.Main)
-                                    val change = event.changes.firstOrNull { it.id == pointerId }
-                                    waiting = change != null && change.pressed &&
-                                        (change.position - down.position)
-                                            .getDistanceSquared() <= slop * slop
-                                }
-                                false // Released or moved before the timeout.
-                            } ?: true
-                            if (longPressed) {
-                                onLongPress()
-                                down.consume()
-                                var pressing = true
-                                while (pressing) {
-                                    val event = awaitPointerEvent(PointerEventPass.Main)
-                                    val change = event.changes.firstOrNull { it.id == pointerId }
-                                    change?.consume()
-                                    pressing = change?.pressed == true
-                                }
-                            }
-                        }
-                    } else {
+        val overlayModifier = Modifier
+            .fillMaxSize()
+            .semantics {
+                contentDescription = "GRID ITEM ${item.itemType.name} " +
+                    "${item.referenceId} AT ${item.col},${item.row}"
+            }
+
+        if (contentOwnsGestures) {
+            // A semantics-only layer keeps the item discoverable without sitting
+            // between an APP_LIST row and its own clickable modifier.
+            Box(modifier = overlayModifier)
+        } else {
+            Box(
+                modifier = overlayModifier
+                    .pointerInput(item.itemId, hasAction, boxWidth, onTap, onLongPress, editing) {
                         detectTapGestures(
                             onTap = { at ->
                                 val xDp = with(density) { at.x.toDp() }
@@ -387,38 +358,38 @@ private fun EditableGridItem(
                             onLongPress = { onLongPress() },
                         )
                     }
-                }
-                .pointerInput(
-                    item.itemId,
-                    editing,
-                    cellWidthPx,
-                    cellHeightPx,
-                    item.col,
-                    item.row,
-                    onMove,
-                ) {
-                    if (!editing) return@pointerInput
-                    var total = Offset.Zero
-                    detectDragGestures(
-                        onDragStart = {
-                            total = Offset.Zero
-                            onItemTouched()
-                        },
-                        onDragEnd = {
-                            val col = item.col + (total.x / cellWidthPx.toFloat()).roundToInt()
-                            val row = item.row + (total.y / cellHeightPx.toFloat()).roundToInt()
-                            onMove(col, row)
-                            state.dragOffset = Offset.Zero
-                        },
-                        onDragCancel = {
-                            state.dragOffset = Offset.Zero
-                        },
-                    ) { _, amount ->
-                        total += amount
-                        state.dragOffset = total
-                    }
-                },
-        )
+                    .pointerInput(
+                        item.itemId,
+                        editing,
+                        cellWidthPx,
+                        cellHeightPx,
+                        item.col,
+                        item.row,
+                        onMove,
+                    ) {
+                        if (!editing) return@pointerInput
+                        var total = Offset.Zero
+                        detectDragGestures(
+                            onDragStart = {
+                                total = Offset.Zero
+                                onItemTouched()
+                            },
+                            onDragEnd = {
+                                val col = item.col + (total.x / cellWidthPx.toFloat()).roundToInt()
+                                val row = item.row + (total.y / cellHeightPx.toFloat()).roundToInt()
+                                onMove(col, row)
+                                state.dragOffset = Offset.Zero
+                            },
+                            onDragCancel = {
+                                state.dragOffset = Offset.Zero
+                            },
+                        ) { _, amount ->
+                            total += amount
+                            state.dragOffset = total
+                        }
+                    },
+            )
+        }
     }
 }
 

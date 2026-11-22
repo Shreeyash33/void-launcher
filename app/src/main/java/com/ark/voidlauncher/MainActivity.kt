@@ -15,7 +15,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -2029,6 +2031,11 @@ private fun HomeScreen(
                         appearance = appListAppearances[item.itemId],
                         editing = canvasEditing,
                         onLaunch = onAppClick,
+                        onLongPress = {
+                            lastItemTouch = System.nanoTime()
+                            onSelectCanvasItem(item)
+                        },
+                        onItemTouched = { lastItemTouch = System.nanoTime() },
                     )
                     customId != null -> {
                         val definition = customWidgets.widgets.firstOrNull { it.id == customId }
@@ -2450,6 +2457,7 @@ private fun PageInfoWidgetContent(page: PageInfo, showCoordinates: Boolean) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppListWidgetContent(
     packages: List<String>,
@@ -2457,6 +2465,8 @@ private fun AppListWidgetContent(
     appearance: AppListAppearance?,
     editing: Boolean,
     onLaunch: (String) -> Unit,
+    onLongPress: () -> Unit,
+    onItemTouched: () -> Unit,
 ) {
     val accent = remember(appearance?.colorHex) {
         val hex = appearance?.colorHex?.trim()?.removePrefix("#")
@@ -2504,7 +2514,17 @@ private fun AppListWidgetContent(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = !editing) { onLaunch(packageName) }
+                            .combinedClickable(
+                                enabled = !editing,
+                                onClick = {
+                                    onItemTouched()
+                                    onLaunch(packageName)
+                                },
+                                onLongClick = {
+                                    onItemTouched()
+                                    onLongPress()
+                                },
+                            )
                             .padding(vertical = rowPadding),
                     )
                 }
