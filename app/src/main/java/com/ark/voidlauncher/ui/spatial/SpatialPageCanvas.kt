@@ -7,8 +7,9 @@ import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
@@ -33,6 +35,7 @@ import com.ark.voidlauncher.domain.edgeForGesture
 import com.ark.voidlauncher.ui.grid.GridGeometry
 import com.ark.voidlauncher.ui.grid.PageGrid
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.abs
 
 /**
@@ -95,6 +98,7 @@ fun SpatialPageCanvas(
     val translation = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val scope = rememberCoroutineScope()
     val view = LocalView.current
+    val tapConfig = android.view.ViewConfiguration.get(view.context)
 
     // A floating pending widget also locks paging so a drag never changes pages.
     val interactionLocked = editing || floatingKind != null
@@ -182,17 +186,75 @@ fun SpatialPageCanvas(
                     scope.launch { translation.snapTo(dragTotal) }
                 }
             }
-            .pointerInput(onHomeRequested, onLongPress, view) {
-                detectTapGestures(
-                    onDoubleTap = {
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        onHomeRequested()
-                    },
-                    onLongPress = {
+            .pointerInput(onHomeRequested, onLongPress, view, tapConfig) {
+                val slopPx = tapConfig.scaledTouchSlop.toFloat()
+                val doubleTapSlopPx = slopPx * 2f
+                var lastTapAtMs = 0L
+                var lastTapPosition = Offset.Zero
+
+                // detectTapGestures consumes ordinary taps, which would stop
+                // child widgets and app shortcuts from receiving clicks. Only
+                // the recognised long press and double tap consume here.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val pointerId = down.id
+                    var waiting = true
+                    var moved = false
+                    var releasedPosition: Offset? = null
+                    val longPressed = withTimeoutOrNull(android.view.ViewConfiguration.getLongPressTimeout().toLong()) {
+                        while (waiting) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            val change = event.changes.firstOrNull { it.id == pointerId }
+                            if (change == null || !change.pressed) {
+                                releasedPosition = change?.position ?: down.position
+                                waiting = false
+                            } else if (
+                                (change.position - down.position)
+                                    .getDistanceSquared() > slopPx * slopPx
+                            ) {
+                                moved = true
+                                waiting = false
+                            }
+                        }
+                        false
+                    } ?: !moved
+
+                    if (longPressed) {
                         view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                         onLongPress()
-                    },
-                )
+                        down.consume()
+                        var pressing = true
+                        while (pressing) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            val change = event.changes.firstOrNull { it.id == pointerId }
+                            change?.consume()
+                            pressing = change?.pressed == true
+                        }
+                        lastTapAtMs = 0L
+                        return@awaitEachGesture
+                    }
+
+                    val up = releasedPosition ?: return@awaitEachGesture
+                    if (moved) {
+                        lastTapAtMs = 0L
+                        return@awaitEachGesture
+                    }
+                    val now = System.nanoTime() / 1_000_000L
+                    if (
+                        lastTapAtMs > 0L &&
+                        now - lastTapAtMs <= android.view.ViewConfiguration.getDoubleTapTimeout().toLong() &&
+                        (up - lastTapPosition)
+                            .getDistanceSquared() <= doubleTapSlopPx * doubleTapSlopPx
+                    ) {
+                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        onHomeRequested()
+                        down.consume()
+                        lastTapAtMs = 0L
+                    } else {
+                        lastTapAtMs = now
+                        lastTapPosition = up
+                    }
+                }
             }
     }
 
