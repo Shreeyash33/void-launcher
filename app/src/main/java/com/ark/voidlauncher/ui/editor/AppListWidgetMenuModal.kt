@@ -78,6 +78,7 @@ fun AppListWidgetMenuModal(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     EditorTextAction(
                         text = if (isIncluded) "REMOVE" else "ADD",

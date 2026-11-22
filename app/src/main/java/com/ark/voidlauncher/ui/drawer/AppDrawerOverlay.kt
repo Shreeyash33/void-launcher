@@ -1,7 +1,10 @@
 package com.ark.voidlauncher.ui.drawer
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -13,8 +16,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -168,8 +173,9 @@ private fun DrawerRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onLaunch)
-            .padding(vertical = 14.dp),
+            .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text(
             text = app.label,
@@ -177,21 +183,26 @@ private fun DrawerRow(
             color = MaterialTheme.colorScheme.onBackground,
             modifier = Modifier.weight(1f),
         )
-        Text(
-            text = "EDIT",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-            modifier = Modifier
-                .clickable(onClick = onCustomize)
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-        )
-        Text(
-            text = if (isPinned) "REMOVE" else "PIN",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .clickable(onClick = onTogglePin)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-        )
+        val editColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f)
+        OutlinedButton(
+            onClick = onCustomize,
+            border = BorderStroke(1.dp, editColor.copy(alpha = 0.6f)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = editColor),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        ) {
+            Text(text = "EDIT", style = MaterialTheme.typography.labelSmall)
+        }
+        val pinColor = MaterialTheme.colorScheme.primary
+        OutlinedButton(
+            onClick = onTogglePin,
+            border = BorderStroke(1.dp, pinColor.copy(alpha = 0.65f)),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = pinColor),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        ) {
+            Text(
+                text = if (isPinned) "REMOVE" else "PIN",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
     }
 }

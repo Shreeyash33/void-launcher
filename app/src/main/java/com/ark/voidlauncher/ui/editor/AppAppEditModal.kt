@@ -1,5 +1,6 @@
 package com.ark.voidlauncher.ui.editor
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 
 /** Where a nickname edit is stored: shared Room customization or drawer-only DataStore. */
 enum class AppEditScope { GLOBAL, DRAWER_ONLY }
@@ -98,7 +100,10 @@ fun AppAppEditModal(
                 },
                 label = "Nickname",
             )
-            Row(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 EditorTextAction(
                     text = "CLEAR",
                     onClick = {

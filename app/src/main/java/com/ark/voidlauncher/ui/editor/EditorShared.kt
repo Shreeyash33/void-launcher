@@ -1,10 +1,12 @@
 package com.ark.voidlauncher.ui.editor
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -16,8 +18,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -86,6 +90,10 @@ internal fun EditorHint(text: String, isError: Boolean = false) {
     )
 }
 
+/**
+ * Compact outlined action. The visible border and padding make adjacent
+ * actions read as separate buttons instead of one run of text.
+ */
 @Composable
 internal fun EditorTextAction(
     text: String,
@@ -93,18 +101,21 @@ internal fun EditorTextAction(
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    Text(
-        text = text.uppercase(),
-        style = MaterialTheme.typography.labelLarge,
-        color = if (enabled) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = DisabledAlpha)
-        },
-        modifier = modifier
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 8.dp),
-    )
+    val color = if (enabled) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface.copy(alpha = DisabledAlpha)
+    }
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        border = BorderStroke(1.dp, color.copy(alpha = 0.65f)),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = color),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        modifier = modifier,
+    ) {
+        Text(text = text.uppercase(), style = MaterialTheme.typography.labelMedium)
+    }
 }
 
 @Composable
