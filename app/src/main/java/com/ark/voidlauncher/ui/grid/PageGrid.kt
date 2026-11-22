@@ -1,7 +1,10 @@
 package com.ark.voidlauncher.ui.grid
 
+import android.view.ViewConfiguration
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -29,6 +32,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,6 +85,8 @@ fun PageGrid(
     // an item that bubbled through, not a request to leave the editor.
     var lastItemTouch by remember { mutableStateOf(0L) }
 
+    val touchSlopPx = ViewConfiguration.get(LocalView.current.context).scaledTouchSlop.toFloat()
+
     // The long press that opened the editor must not be read as an empty tap
     // when the finger is released.
     LaunchedEffect(editing) {
@@ -97,13 +103,30 @@ fun PageGrid(
             .fillMaxSize()
             .pointerInput(editing, onEmptyTap, floatingKind) {
                 if (!editing || floatingKind != null) return@pointerInput
-                detectTapGestures(
-                    onTap = {
-                        if (System.nanoTime() - lastItemTouch > ITEM_TOUCH_WINDOW_NS) {
-                            onEmptyTap()
+                // Keep the down unconsumed so a swipe from empty space can be
+                // recognised by the page canvas. Only a completed tap exits.
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = true)
+                    val pointerId = down.id
+                    var moved = false
+                    var released = false
+                    while (!released) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == pointerId }
+                        if (change == null || !change.pressed) {
+                            released = true
+                        } else if (
+                            (change.position - down.position).getDistanceSquared() >
+                                touchSlopPx * touchSlopPx
+                        ) {
+                            moved = true
                         }
-                    },
-                )
+                    }
+                    if (!moved && System.nanoTime() - lastItemTouch > ITEM_TOUCH_WINDOW_NS) {
+                        down.consume()
+                        onEmptyTap()
+                    }
+                }
             },
     ) {
         if (cols <= 0 || rows <= 0) return@BoxWithConstraints

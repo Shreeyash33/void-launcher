@@ -39,6 +39,7 @@ class LauncherPrefs(private val context: Context) {
         private val GESTURE_BINDINGS_GLOBAL = stringSetPreferencesKey("gesture_bindings_global")
         private val GESTURE_BINDINGS_PAGES = stringSetPreferencesKey("gesture_bindings_pages")
         private val CUSTOM_WIDGET_BUNDLE = stringPreferencesKey("custom_widget_bundle_v1")
+        private val EDITOR_HINT_SEEN = booleanPreferencesKey("editor_hint_seen")
 
         // DataStore-only overrides (deliberately outside backup v1, like gesture bindings).
         private val DRAWER_NICKNAMES = stringPreferencesKey("drawer_nicknames_v1")
@@ -240,6 +241,11 @@ class LauncherPrefs(private val context: Context) {
         prefs[SHOW_COORDINATE_DETAIL] ?: true
     }
 
+    /** The editor hint is shown only on the first editor session. */
+    val editorHintSeen: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[EDITOR_HINT_SEEN] ?: false
+    }
+
     /** Sidecar widget definitions; an unreadable value falls back to an empty bundle. */
     val customWidgetBundle: Flow<CustomWidgetBundle> = context.dataStore.data.map { prefs ->
         prefs[CUSTOM_WIDGET_BUNDLE]?.let(CustomWidgetBundleManager::fromJson)
@@ -359,6 +365,11 @@ class LauncherPrefs(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[SHOW_COORDINATE_DETAIL] = show
         }
+    }
+
+    /** Called once when the editor hint is first displayed. */
+    suspend fun markEditorHintSeen() {
+        context.dataStore.edit { prefs -> prefs[EDITOR_HINT_SEEN] = true }
     }
 
     /** Replaces all custom widget definitions with a validated version-1 bundle. */

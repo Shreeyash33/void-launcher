@@ -53,9 +53,10 @@ import kotlin.math.abs
  * the page grid editor). A pending floating widget preview occupies
  * [floatingSpanX] by [floatingSpanY] cells.
  *
- * While [editing] is true all page gestures are suspended: the canvas becomes
- * a plain editing surface where items handle their own drag/tap gestures and
- * an empty tap calls [onEmptyTap].
+ * While [editing] is true, items still handle their own drag/tap gestures and
+ * an empty tap calls [onEmptyTap]; page swipes remain active so the editor can
+ * follow the user to another page. Long press and double tap are suspended.
+ * A floating widget preview still locks paging entirely.
  */
 @Composable
 fun SpatialPageCanvas(
@@ -100,14 +101,17 @@ fun SpatialPageCanvas(
     val view = LocalView.current
     val tapConfig = android.view.ViewConfiguration.get(view.context)
 
-    // A floating pending widget also locks paging so a drag never changes pages.
-    val interactionLocked = editing || floatingKind != null
+    // A floating pending widget locks paging; editing leaves swipes active so
+    // the editor can follow the user to another page. Long press and double tap
+    // are suspended while editing so they never compete with item selection.
+    val pagingLocked = floatingKind != null
+    val interactionLocked = editing || pagingLocked
 
     LaunchedEffect(interactionLocked) {
         if (interactionLocked && translation.value != Offset.Zero) translation.snapTo(Offset.Zero)
     }
 
-    val pageGestureModifier = if (interactionLocked) {
+    val pageSwipeModifier = if (pagingLocked) {
         Modifier
     } else {
         Modifier
@@ -186,6 +190,11 @@ fun SpatialPageCanvas(
                     scope.launch { translation.snapTo(dragTotal) }
                 }
             }
+    }
+    val pageTapModifier = if (pagingLocked || editing) {
+        Modifier
+    } else {
+        Modifier
             .pointerInput(onHomeRequested, onLongPress, view, tapConfig) {
                 val slopPx = tapConfig.scaledTouchSlop.toFloat()
                 val doubleTapSlopPx = slopPx * 2f
@@ -257,6 +266,7 @@ fun SpatialPageCanvas(
                 }
             }
     }
+    val pageGestureModifier = pageSwipeModifier.then(pageTapModifier)
 
     Box(
         modifier = modifier

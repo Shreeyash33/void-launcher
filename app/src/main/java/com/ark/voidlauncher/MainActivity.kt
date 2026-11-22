@@ -181,6 +181,9 @@ class MainActivity : ComponentActivity() {
             val customPalette by prefs.customPalette.collectAsState(initial = CustomPalette.darkDefault())
             val orientationMode by prefs.orientationMode.collectAsState(initial = OrientationMode.PORTRAIT)
             val showCoordinateDetail by prefs.showCoordinateDetail.collectAsState(initial = true)
+            // Start as seen so returning users never get a hint flash before the
+            // persisted value arrives.
+            val editorHintSeen by prefs.editorHintSeen.collectAsState(initial = true)
             val gestureBindings by prefs.gestureBindings.collectAsState(
                 initial = GestureBindings(),
             )
@@ -233,6 +236,7 @@ class MainActivity : ComponentActivity() {
             val screenHistory = remember { mutableStateListOf<Screen>() }
             var editor by remember { mutableStateOf(Editor.NONE) }
             var canvasEditing by remember { mutableStateOf(false) }
+            var showEditorHint by remember { mutableStateOf(false) }
             var selectedCanvasItemId by remember { mutableStateOf<Long?>(null) }
             var resizeItemId by remember { mutableStateOf<Long?>(null) }
             var pendingWidgetKind by remember { mutableStateOf<BuiltInWidgetKind?>(null) }
@@ -641,7 +645,8 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(homePageId) { currentPageId = homePageId }
 
             LaunchedEffect(currentPageId) {
-                canvasEditing = false
+                // Editor mode is sticky across page changes: only per-page state
+                // is dropped. Exiting is an explicit user action.
                 selectedCanvasItemId = null
                 resizeItemId = null
                 pendingWidgetKind = null
@@ -732,12 +737,23 @@ class MainActivity : ComponentActivity() {
 
             fun exitCanvasEditor() {
                 canvasEditing = false
+                showEditorHint = false
+                selectedCanvasItemId = null
+                resizeItemId = null
+            }
+
+            /** Enters the canvas editor, showing the hint only for the first session. */
+            fun enterCanvasEditor() {
+                showEditorHint = !editorHintSeen
+                if (!editorHintSeen) scope.launch { prefs.markEditorHintSeen() }
+                editor = Editor.NONE
+                canvasEditing = true
                 selectedCanvasItemId = null
                 resizeItemId = null
             }
 
             fun selectCanvasItem(item: GridItemEntity) {
-                canvasEditing = true
+                if (!canvasEditing) enterCanvasEditor()
                 selectedCanvasItemId = item.itemId
             }
 
@@ -775,7 +791,8 @@ class MainActivity : ComponentActivity() {
                         rowSpan = rowSpan,
                     )
                     if (placed.first != item.pageId) {
-                        canvasEditing = false
+                        // Moving an item to another page keeps editor mode active;
+                        // the page-change effect clears its stale selection.
                         selectedCanvasItemId = null
                         resizeItemId = null
                         currentPageId = placed.first
@@ -948,9 +965,7 @@ class MainActivity : ComponentActivity() {
                 }
                 overview = false
                 navigateTo(Screen.HOME)
-                canvasEditing = true
-                selectedCanvasItemId = null
-                resizeItemId = null
+                enterCanvasEditor()
             }
 
             fun beginAddWidget(provider: ComponentName) {
@@ -1068,12 +1083,7 @@ class MainActivity : ComponentActivity() {
                         exitCanvasEditor()
                         openWidgetPicker()
                     }
-                    GestureTarget.EDITOR -> {
-                        editor = Editor.NONE
-                        canvasEditing = true
-                        selectedCanvasItemId = null
-                        resizeItemId = null
-                    }
+                    GestureTarget.EDITOR -> enterCanvasEditor()
                     GestureTarget.TOGGLE_COORDINATES -> scope.launch {
                         prefs.setShowCoordinateDetail(!showCoordinateDetail)
                     }
@@ -1261,18 +1271,15 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenWidgetPicker = {
                                         exitCanvasEditor()
-                                        overview = true
+                                        overview = false
+                                        openWidgetPicker()
                                     },
                                     onLongPress = {
-                                        runGestureAction(longPressAction) {
-                                            editor = Editor.NONE
-                                            canvasEditing = true
-                                            selectedCanvasItemId = null
-                                            resizeItemId = null
-                                        }
+                                        runGestureAction(longPressAction) { enterCanvasEditor() }
                                     },
                                     showCoordinateDetail = showCoordinateDetail,
                                     canvasEditing = canvasEditing,
+                                    showEditorHint = showEditorHint,
                                     selectedCanvasItemId = selectedCanvasItemId,
                                     onSelectCanvasItem = ::selectCanvasItem,
                                     onMoveCanvasItem = { item, col, row ->
@@ -1962,6 +1969,7 @@ private fun HomeScreen(
     onOpenMap: () -> Unit = {},
     showCoordinateDetail: Boolean = true,
     canvasEditing: Boolean = false,
+    showEditorHint: Boolean = false,
     selectedCanvasItemId: Long? = null,
     onSelectCanvasItem: (GridItemEntity) -> Unit = {},
     onMoveCanvasItem: (GridItemEntity, Int, Int) -> Boolean = { _, _, _ -> false },
@@ -2108,56 +2116,64 @@ private fun HomeScreen(
                 }
             }
 
-            GlassPanel(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-                    .fillMaxWidth(),
-            ) {
-                Row(
+            // The explanatory label is shown only for the first editor session;
+            // later sessions keep the action buttons without the description.
+            if (showEditorHint || selectedCanvasItem != null) {
+                GlassPanel(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp, horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                        .fillMaxWidth(),
                 ) {
-                    Text(
-                        text = if (selectedCanvasItem == null) {
-                            "LONG-PRESS AN ITEM · TAP EMPTY SPACE TO EXIT"
-                        } else {
-                            "DRAG TO MOVE"
-                        },
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (selectedCanvasItem != null) {
-                        if (selectedCanvasItem.isAppListWidget()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp, horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (showEditorHint) {
                             Text(
-                                text = "MENU",
+                                text = if (selectedCanvasItem == null) {
+                                    "LONG-PRESS AN ITEM · TAP EMPTY SPACE TO EXIT"
+                                } else {
+                                    "DRAG TO MOVE"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                        } else {
+                            Spacer(Modifier.weight(1f))
+                        }
+                        if (selectedCanvasItem != null) {
+                            if (selectedCanvasItem.isAppListWidget()) {
+                                Text(
+                                    text = "MENU",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .clickable { onAppListMenu(selectedCanvasItem) }
+                                        .padding(8.dp),
+                                )
+                            }
+                            Text(
+                                text = "RESIZE",
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier
-                                    .clickable { onAppListMenu(selectedCanvasItem) }
+                                    .clickable { onResizeCanvasItem(selectedCanvasItem) }
+                                    .padding(8.dp),
+                            )
+                            Text(
+                                text = "REMOVE",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier
+                                    .clickable { onRemoveCanvasItem(selectedCanvasItem) }
                                     .padding(8.dp),
                             )
                         }
-                        Text(
-                            text = "RESIZE",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .clickable { onResizeCanvasItem(selectedCanvasItem) }
-                                .padding(8.dp),
-                        )
-                        Text(
-                            text = "REMOVE",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier
-                                .clickable { onRemoveCanvasItem(selectedCanvasItem) }
-                                .padding(8.dp),
-                        )
                     }
                 }
             }
