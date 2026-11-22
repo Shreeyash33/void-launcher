@@ -325,3 +325,12 @@ Frozen contracts live in `docs/P8_P11_CONTRACTS.md` (`62a7c99`). The pinned tool
 - **Sticky editor:** `LaunchedEffect(currentPageId)` no longer clears `canvasEditing`; it only clears per-page selection, resize, pending widget and modal state. Cross-page item moves and binding-driven HOME/double-tap navigation likewise keep editor mode. `SpatialPageCanvas` keeps the page-swipe detector active while editing and suspends only long-press/double-tap; a floating widget preview still locks paging. `PageGrid`'s empty-tap detector now waits without consuming the down, so a swipe from empty space reaches the canvas while a genuine tap still exits the editor.
 - Final serialized build: `.\gradlew --stop` then `.\gradlew --no-daemon --max-workers=1 testDebugUnitTest assembleDebug assembleRelease` — **BUILD SUCCESSFUL in 3m 6s**. Debug APK SHA-256 `22AB0828397A7455EC23F8D1A3A1D28850AB1168930037BB684B63E789047A38`.
 - Device verification on the Infinix X669C: first editor entry showed `LONG-PRESS AN ITEM · TAP EMPTY SPACE TO EXIT`; second entry (and entry after force-stop/relaunch) showed only `MAP`/`MENU`. MENU → WIDGETS opened `CHOOSE A WIDGET` with `APP LIST`, `CLOCK`, `PAGE INFO`. Entering editor on HOME and swiping right left `MAP`/`MENU` visible on the next page; swiping back kept them; tapping `PAGE_INFO` still exposed `RESIZE`/`REMOVE`; an empty tap exited. Lockscreen was handed off to the user. Phone left awake, unlocked and focused on `com.ark.voidlauncher/.MainActivity` with a clean HOME; no UI dump files remain.
+
+---
+
+## 13. 2026-11-22 — paused checkpoint
+
+- User asked to pause because of repeated laptop crashes. All source work is committed and pushed; resume from `465b0d2` (`Record editor navigation follow-up and verification`) with `origin/main` in sync.
+- Final pre-pause backup: `backups\void-launcher-source-20261122-135212.zip` (git archive of HEAD). Working tree is clean except user-owned `web_editor/`, which must remain untracked/uncommitted.
+- No active Gradle, ADB or subagent tasks. Memory was 48% at pause. Phone was left awake, unlocked, focused on `com.ark.voidlauncher/.MainActivity`, on a clean HOME; Void Launcher is still not the default HOME.
+- Next session: re-check `git status`/`git log`, verify the device with `mWakefulness` before any input, and pick up any new user request. Keep the established workflow: backup before edits, serialized low-memory build, frequent commits, push when green, no screenshots/temp DB files, and no commit of `web_editor/`.
