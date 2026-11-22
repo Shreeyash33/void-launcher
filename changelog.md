@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-22 — interaction batch (in progress)
+
+- Long-press on an empty page enters that page's grid editor; the map is reached from an explicit MAP button/binding, not the default long-press.
+- Map page cards label their type (`HOME`, `WIDGET`, `APP_DRAWER`); editor mode outlines every placed widget so overlapping extents are visible.
+- New `PAGE_INFO` built-in widget (2×2) replaces the fixed coordinate badge; `APP_LIST` becomes a 4×3, resizable miniature drawer with launchable rows and an editor modal.
+- Drawer EDIT opens a per-app modal with GLOBAL vs DRAWER-ONLY nickname scope. Drawer-only nicknames and widget appearance are DataStore-only, like gesture bindings.
+- Workflow reminders recorded in `docs/DESIGN_NOTES.md`: sudden restarts, memory below 80%, backup before every revision, serialized low-memory build, subagents, no default HOME, `web_editor/` untracked.
+
 ## 0.6.0 — current release (2026-11-19)
 
 - P8–P11 shipped: soft light/dark system with editable `CUSTOM` palette, portrait/default orientation setting, per-page/global colour/gradient/image backgrounds, themed system bars, glass HUD/nav and Canvas-drawn direction arrows.

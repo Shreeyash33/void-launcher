@@ -1,13 +1,21 @@
 # Void Launcher — Design Notes
 
-**Last updated:** 2026-11-19  
-**Status:** Implementation complete through P11 (themes, orientation, backgrounds, polish) and v0.6.0; release artifact published. Toolchain unchanged; see §9 for the full session log. These notes also exist so the design survives session compaction.
+**Last updated:** 2026-11-22  
+**Status:** Implementation complete through P11 and v0.6.0, plus map/backup/gesture/modular-widget work through commit `fed10cc`. A new interaction batch is queued in §5b. Toolchain unchanged; see §9 for the full session log. These notes also exist so the design survives session compaction.
 
 ---
 
 ## 1. Hard constraints (do not violate)
 
-- **Sudden restarts are expected on this laptop (user warning, 2026-11-19).** Treat every file write as potentially the last before a hard reboot. Commit small, frequent checkpoints; never leave a large batch of work uncommitted. All agents must commit as soon as a coherent file set is written, not only at the end of a phase. Keep notes in this file updated at each checkpoint. Prefer `write` (atomic replace) over long sequences of fragile edits when a restart could land mid-edit.
+- **Sudden restarts are expected on this laptop (user warning, 2026-11-19; reiterated 2026-11-22).** Treat every file write as potentially the last before a hard reboot. Commit small, frequent checkpoints; never leave a large batch of work uncommitted. All agents must commit as soon as a coherent file set is written, not only at the end of a phase. Keep notes in this file updated at each checkpoint. Prefer `write` (atomic replace) over long sequences of fragile edits when a restart could land mid-edit.
+- **Memory must stay below 80% (user warning, 2026-11-22).** If usage crosses 80%, stop every active task immediately — Gradle, ADB, subagents, file scans — until it drops. Prefer low-memory serial work over parallelism when the laptop is under load.
+- **Source backup before every revision (user instruction).** Create `backups\void-launcher-source-YYYYMMDD-HHMMSS.zip` with `scripts\create-backup.ps1` before editing source, notes, or contract files. Latest pre-batch backup: `backups\void-launcher-source-20261122-113450.zip`.
+- **Serialized low-memory build (user instruction).** Before declaring a revision green, run `.\gradlew --stop` then `.\gradlew --no-daemon --max-workers=1 testDebugUnitTest assembleDebug assembleRelease`. No new Gradle dependencies; `minSdk = 24` and the pinned toolchain stay unchanged.
+- **Use subagents for disjoint slices (user instruction, reiterated 2026-11-22).** Keep ownership non-overlapping; the lead owns integration, verification and commits.
+- **Do not set Void Launcher as the default HOME.** The user will do that later; never claim the default with an ADB or system command.
+- **`web_editor/` is user-owned and untracked.** It must not be staged, committed or deleted. The only allowed in-place write is `web_editor/WEB_EDITOR_HANDOFF.md` when the data contract changes.
+- **Device input safety.** Check `mWakefulness` before sending taps/swipes; wake with `input keyevent 26` only if `Asleep`. Hand off if a lockscreen appears.
+- **No screenshots or test images may be left behind.** Text/XML/log/DB reports only.
 - **Do not upgrade the toolchain.** Another OpenCode session shares it for a different app.
 - Pinned stack:
   - JDK 17
@@ -128,9 +136,20 @@ A green Gradle build is necessary but not sufficient; swipe feel, widget resizin
 
 - **Theme foundation before homepage UI (user requirement, 2026-11-19):** When the homepage UI is assembled, dark and light themes must be in place **first**, with a deliberate slot reserved for a future custom theme editor. `ui/theme/Theme.kt` already has `SYSTEM` / `DARK` / `LIGHT` and two color schemes; before integrating the P2 canvas the lead must audit it so every homepage surface uses `MaterialTheme.colorScheme` / `MaterialTheme.typography` tokens (no hardcoded colors), and add an extension point for user-defined color palettes. The custom **editor** itself is deferred — do not build it in P1-P3. Homepage components built by subagents must consume theme tokens only.
 
-- **Page-label widget (user request, 2026-11-21):** The fixed top-centre title/coordinate badge in `ui/hud/NavigationHud.kt` (`PAGE 0,0` / `HOME`) should become a normal built-in widget so the user can move, resize, edit or delete it like `CLOCK` and `APP LIST`. Keep the direction indicators and wall flash in `NavigationHud`; only the title/coordinate badge moves into the grid. Scope for the later widget batch: add a `PAGE_INFO` value to `BuiltInWidgetKind`, render `displayTitle` + coordinates + HOME tag from the current `PageInfo`, add it to `BuiltInWidgetPickerScreen`, decide whether fresh installs seed one on HOME and whether omitting it suppresses the fixed badge, extend `BackupManager`/`BackupValidator` enum handling, and update `web_editor/WEB_EDITOR_HANDOFF.md` built-in-widget list. Do not start this inside the screen-cleanup slice.
+- **Page-label widget (user request, 2026-11-21; decided 2026-11-22):** The fixed top-centre title/coordinate badge becomes a normal built-in `PAGE_INFO` widget, **default 2 columns × 2 rows**, seeded on HOME for fresh installs and RESET ALL. It renders `displayTitle` + coordinates + HOME tag from the current `PageInfo`. Direction indicators and wall flash stay in `NavigationHud`; the fixed badge is removed. Add `PAGE_INFO` to the picker, backup codec/validator tests and `web_editor/WEB_EDITOR_HANDOFF.md`. `showCoordinateDetail` controls its coordinate line. This is now part of the §5b batch.
 
 - **Modular widget architecture (user decision, 2026-11-21):** Widgets are first-class, user-extensible items, not a closed enum. The layout file references them (`builtin:`, flattened provider, `custom:<id>`, or an opaque future scheme); web-authored definitions live in a sidecar `voidlauncher-widgets.json`, and a `voidlauncher-inventory.json` export lets the web editor mimic the device's apps/widgets. Custom widgets run as sandboxed WebView widgets with no network, file access, navigation, bridges or external resources. Missing custom widgets render as placeholders and are never dropped on import/export; unknown reference schemes round-trip verbatim. Authoritative spec is `web_editor/WEB_EDITOR_HANDOFF.md` §5a, §9a, §9b and §11.
+
+## 5b. Active interaction batch (user requests, 2026-11-22)
+
+- **Long-press empty page → edit that page's grid, not the modal map.** The default unbound `LONG_PRESS` fallback must enter `canvasEditing` on the current page so widgets can be dragged immediately. The full-screen PAGE MAP is reachable only via an explicit gesture binding or a visible MAP button; the editor gets a MAP button that exits editing and opens the overview. App-drawer pages have no canvas editor, so their unbound long-press is a no-op; explicit `OPEN_MAP` bindings still work.
+- **Map page cards must show their type.** In addition to HOME/HERE tags, each card shows the stored/effective `PageInfo.pageType` name: `HOME`, `WIDGET`, or `APP_DRAWER`. Never recompute the type from coordinates in the UI.
+- **Editor mode shows every widget's boundary.** While `canvasEditing`, draw a faint, contrasting outline around all placed items' stored `col/row/colSpan/rowSpan`, not just the selected item. Keep the stronger selected-item border. This makes blocked drop targets understandable.
+- **APP_LIST widget is a miniature app drawer.** Default size **4 columns × 3 rows**, resizable. One app name per row, label fills the available width, and tapping a row launches that app. In editor mode a MENU affordance opens a modal for app membership, per-app nicknames inside the list, and widget colour/appearance. The external floating `+` add-widget flow stays outside that modal and keeps working.
+- **Drawer app edit is per-app and scoped.** Tapping EDIT on one app in the app drawer opens a modal for that app only, never all apps. The user chooses whether the nickname applies **globally** (existing `AppCustomizationEntity.customNickname`, visible wherever the app is labelled) or **only in the app drawer** (new DataStore keyed by package). No Room migration. Drawer PIN stays on its existing DataStore path.
+- **PAGE_INFO widget ships in this batch.** See §5a; default 2×2, seeded on HOME for fresh installs and RESET ALL, fixed badge removed.
+- **Data-scope caveat to document:** drawer-only nicknames and APP_LIST appearance are DataStore-only and are not part of backup v1, like gesture bindings. Global nicknames remain in the backup via `customizations`.
+- **Future, not this batch:** user plans dedicated gesture-zone widgets later — visually distinctive, technically difficult. Do not start them here.
 
 ---
 
