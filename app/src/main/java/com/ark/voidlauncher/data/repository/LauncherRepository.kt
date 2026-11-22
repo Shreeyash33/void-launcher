@@ -357,18 +357,26 @@ class LauncherRepository(
         ),
     )
 
-    /** Creates a 1×1 built-in widget. Placement is resolved by the caller. */
+    /**
+     * Creates a built-in widget at caller-resolved placement. Spans default to the
+     * kind-specific geometry in [BuiltInWidgets.defaultSpan]; older callers that
+     * pass only the position keep compiling and get the correct size.
+     */
     suspend fun addBuiltInWidget(
         kind: BuiltInWidgetKind,
         pageId: Long,
         col: Int,
         row: Int,
+        colSpan: Int = BuiltInWidgets.defaultSpan(kind).colSpan,
+        rowSpan: Int = BuiltInWidgets.defaultSpan(kind).rowSpan,
     ): Long = database.gridItemDao().insert(
         GridItemEntity(
             pageId = pageId,
             itemType = GridItemType.WIDGET,
             col = col,
             row = row,
+            colSpan = colSpan,
+            rowSpan = rowSpan,
             referenceId = BuiltInWidgets.reference(kind),
             allowOverlap = true,
             widgetKind = kind,
@@ -484,6 +492,21 @@ class LauncherRepository(
                                 fromPageId = ids.getValue(edge.fromX to edge.fromY),
                                 swipeDirection = edge.direction,
                                 toPageId = ids.getValue(edge.toX to edge.toY),
+                            ),
+                        )
+                    }
+                    DefaultLayout.items.forEach { item ->
+                        database.gridItemDao().insert(
+                            GridItemEntity(
+                                pageId = ids.getValue(item.coordX to item.coordY),
+                                itemType = GridItemType.WIDGET,
+                                col = item.col,
+                                row = item.row,
+                                colSpan = item.colSpan,
+                                rowSpan = item.rowSpan,
+                                referenceId = BuiltInWidgets.reference(item.kind),
+                                allowOverlap = true,
+                                widgetKind = item.kind,
                             ),
                         )
                     }

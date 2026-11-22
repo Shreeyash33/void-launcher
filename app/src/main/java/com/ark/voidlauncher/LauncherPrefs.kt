@@ -10,6 +10,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.ark.voidlauncher.data.backup.CustomWidgetBundleManager
+import com.ark.voidlauncher.domain.AppListAppearance
 import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.CustomWidgetBundle
 import com.ark.voidlauncher.domain.GestureAction
@@ -20,6 +21,7 @@ import com.ark.voidlauncher.domain.GestureTrigger
 import com.ark.voidlauncher.domain.OrientationMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.json.JSONObject
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "void_launcher_prefs")
 
@@ -37,6 +39,16 @@ class LauncherPrefs(private val context: Context) {
         private val GESTURE_BINDINGS_GLOBAL = stringSetPreferencesKey("gesture_bindings_global")
         private val GESTURE_BINDINGS_PAGES = stringSetPreferencesKey("gesture_bindings_pages")
         private val CUSTOM_WIDGET_BUNDLE = stringPreferencesKey("custom_widget_bundle_v1")
+
+        // DataStore-only overrides (deliberately outside backup v1, like gesture bindings).
+        private val DRAWER_NICKNAMES = stringPreferencesKey("drawer_nicknames_v1")
+        private val APP_LIST_APPEARANCES = stringPreferencesKey("app_list_appearances_v1")
+
+        private const val OVERRIDE_VERSION = 1
+        private const val JSON_VERSION = "version"
+        private const val JSON_ENTRIES = "entries"
+        private const val JSON_COLOR_HEX = "colorHex"
+        private const val JSON_DENSE = "dense"
 
         private val CUSTOM_BACKGROUND = stringPreferencesKey("custom_bg")
         private val CUSTOM_SURFACE = stringPreferencesKey("custom_surface")
@@ -109,6 +121,75 @@ class LauncherPrefs(private val context: Context) {
             if (action == GestureAction.NONE) return null
             return (x to y) to GestureBinding(trigger, action)
         }
+
+        /** Encodes nickname overrides as `{"version":1,"entries":{"<package>":"<label>"}}`. */
+        private fun encodeDrawerNicknames(nicknames: Map<String, String>): String = runCatching {
+            val entries = JSONObject()
+            nicknames.forEach { (packageName, label) ->
+                if (packageName.isNotBlank() && label.isNotBlank()) {
+                    entries.put(packageName, label)
+                }
+            }
+            JSONObject()
+                .put(JSON_VERSION, OVERRIDE_VERSION)
+                .put(JSON_ENTRIES, entries)
+                .toString()
+        }.getOrDefault("")
+
+        /** Any malformed row is skipped; a bad document yields an empty map. */
+        private fun decodeDrawerNicknames(raw: String?): Map<String, String> = runCatching {
+            if (raw.isNullOrBlank()) return@runCatching emptyMap()
+            val root = JSONObject(raw)
+            if (root.optInt(JSON_VERSION, -1) != OVERRIDE_VERSION) return@runCatching emptyMap()
+            val entries = root.optJSONObject(JSON_ENTRIES) ?: return@runCatching emptyMap()
+            val decoded = LinkedHashMap<String, String>()
+            val keys = entries.keys()
+            while (keys.hasNext()) {
+                val packageName = keys.next() ?: continue
+                val label = entries.opt(packageName) as? String ?: continue
+                if (packageName.isNotBlank() && label.isNotBlank()) {
+                    decoded[packageName] = label
+                }
+            }
+            decoded.toMap()
+        }.getOrDefault(emptyMap())
+
+        /** Encodes appearance overrides as `{"version":1,"entries":{"<itemId>":{...}}}`. */
+        private fun encodeAppListAppearances(
+            appearances: Map<Long, AppListAppearance>,
+        ): String = runCatching {
+            val entries = JSONObject()
+            appearances.forEach { (itemId, appearance) ->
+                val row = JSONObject()
+                appearance.colorHex?.takeIf { it.isNotBlank() }?.let { row.put(JSON_COLOR_HEX, it) }
+                row.put(JSON_DENSE, appearance.dense)
+                entries.put(itemId.toString(), row)
+            }
+            JSONObject()
+                .put(JSON_VERSION, OVERRIDE_VERSION)
+                .put(JSON_ENTRIES, entries)
+                .toString()
+        }.getOrDefault("")
+
+        /** Unknown ids, bad rows and bad colours are ignored without throwing. */
+        private fun decodeAppListAppearances(raw: String?): Map<Long, AppListAppearance> = runCatching {
+            if (raw.isNullOrBlank()) return@runCatching emptyMap()
+            val root = JSONObject(raw)
+            if (root.optInt(JSON_VERSION, -1) != OVERRIDE_VERSION) return@runCatching emptyMap()
+            val entries = root.optJSONObject(JSON_ENTRIES) ?: return@runCatching emptyMap()
+            val decoded = LinkedHashMap<Long, AppListAppearance>()
+            val keys = entries.keys()
+            while (keys.hasNext()) {
+                val itemId = (keys.next() ?: continue).toLongOrNull() ?: continue
+                val row = entries.opt(itemId.toString()) as? JSONObject ?: continue
+                val colorHex = (row.opt(JSON_COLOR_HEX) as? String)?.takeIf { it.isNotBlank() }
+                decoded[itemId] = AppListAppearance(
+                    colorHex = colorHex,
+                    dense = row.optBoolean(JSON_DENSE, false),
+                )
+            }
+            decoded.toMap()
+        }.getOrDefault(emptyMap())
     }
 
     /** Shared DataStore instance so migrations read the same file as prefs. */
@@ -165,6 +246,16 @@ class LauncherPrefs(private val context: Context) {
             ?: CustomWidgetBundle()
     }
 
+    /** Drawer-only nicknames keyed by package. Never falls back to Room nicknames. */
+    val drawerNicknames: Flow<Map<String, String>> = context.dataStore.data.map { prefs ->
+        prefs[DRAWER_NICKNAMES]?.let(::decodeDrawerNicknames) ?: emptyMap()
+    }
+
+    /** Per-widget APP_LIST appearance overrides keyed by grid item id. */
+    val appListAppearances: Flow<Map<Long, AppListAppearance>> = context.dataStore.data.map { prefs ->
+        prefs[APP_LIST_APPEARANCES]?.let(::decodeAppListAppearances) ?: emptyMap()
+    }
+
     /** Persisted gesture bindings; page entries take precedence over globals. */
     val gestureBindings: Flow<GestureBindings> = context.dataStore.data.map { prefs ->
         val global = (prefs[GESTURE_BINDINGS_GLOBAL] ?: emptySet())
@@ -200,6 +291,67 @@ class LauncherPrefs(private val context: Context) {
                 .filterNot { isBindingFor(it, scope, pageCoord, trigger) }
                 .toSet()
             prefs[key] = if (replacement == null) kept else kept + replacement
+        }
+    }
+
+    /**
+     * Sets or removes one drawer-only nickname. Passing [label] as null (or blank)
+     * removes that package's override; other packages are left untouched.
+     */
+    suspend fun setDrawerNickname(packageName: String, label: String?) {
+        if (packageName.isBlank()) return
+        runCatching {
+            context.dataStore.edit { prefs ->
+                val updated = decodeDrawerNicknames(prefs[DRAWER_NICKNAMES]).toMutableMap()
+                if (label == null || label.isBlank()) {
+                    updated.remove(packageName)
+                } else {
+                    updated[packageName] = label
+                }
+                val encoded = encodeDrawerNicknames(updated)
+                if (encoded.isEmpty()) {
+                    prefs.remove(DRAWER_NICKNAMES)
+                } else {
+                    prefs[DRAWER_NICKNAMES] = encoded
+                }
+            }
+        }
+    }
+
+    /** Removes every drawer-only nickname so system/global labels apply again. */
+    suspend fun clearDrawerNicknames() {
+        runCatching {
+            context.dataStore.edit { prefs -> prefs.remove(DRAWER_NICKNAMES) }
+        }
+    }
+
+    /**
+     * Sets or removes one APP_LIST widget appearance. Passing [appearance] as null
+     * removes only that item's override and preserves all other widgets.
+     */
+    suspend fun setAppListAppearance(itemId: Long, appearance: AppListAppearance?) {
+        runCatching {
+            context.dataStore.edit { prefs ->
+                val updated = decodeAppListAppearances(prefs[APP_LIST_APPEARANCES]).toMutableMap()
+                if (appearance == null) {
+                    updated.remove(itemId)
+                } else {
+                    updated[itemId] = appearance
+                }
+                val encoded = encodeAppListAppearances(updated)
+                if (encoded.isEmpty()) {
+                    prefs.remove(APP_LIST_APPEARANCES)
+                } else {
+                    prefs[APP_LIST_APPEARANCES] = encoded
+                }
+            }
+        }
+    }
+
+    /** Removes every APP_LIST appearance override so widgets render with defaults. */
+    suspend fun clearAppListAppearances() {
+        runCatching {
+            context.dataStore.edit { prefs -> prefs.remove(APP_LIST_APPEARANCES) }
         }
     }
 

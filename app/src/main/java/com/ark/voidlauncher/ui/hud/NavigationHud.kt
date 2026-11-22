@@ -8,8 +8,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,8 +43,8 @@ import kotlinx.coroutines.delay
  *
  * The whole surface is transparent to touch: only the small MAP text is
  * clickable, so swipes, double taps and long presses still reach the canvas
- * underneath. The coordinate badge is the primary "where am I" cue; the four
- * edge arrows show which swipes lead somewhere and which are walls.
+ * underneath. The four edge arrows and their neighbour labels show which swipes
+ * lead somewhere and which are walls; the MAP text opens the overview.
  *
  * Pass a size-providing [modifier] (for example `Modifier.matchParentSize()`
  * from the owning BoxScope, or `Modifier.fillMaxSize()`).
@@ -63,10 +61,6 @@ fun NavigationHud(
     val outgoing = remember(edges, page.pageId) {
         edges.filter { it.fromPageId == page.pageId }
     }
-    // The origin is the default home coordinate; the host also renders this HUD
-    // only on the home page, so this tag reflects home in the standard setup.
-    val isHome = page.coordX == HOME_COORD_X && page.coordY == HOME_COORD_Y
-
     // Keep the last side long enough to fade the bar out after the host clears
     // the wall hit.
     var flashDirection by remember { mutableStateOf<SwipeDirection?>(null) }
@@ -91,40 +85,6 @@ fun NavigationHud(
         Box(modifier = Modifier.matchParentSize()) {
             if (visibleFlash != null && flashAlpha > 0f) {
                 WallFlash(direction = visibleFlash, flashAlpha = flashAlpha)
-            }
-
-            Column(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                GlassPanel {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Text(
-                            text = "PAGE ${page.coordX},${page.coordY}",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        if (isHome) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "HOME",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier
-                                    .background(
-                                        color = MaterialTheme.colorScheme.primary,
-                                        shape = MaterialTheme.shapes.small,
-                                    )
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                }
             }
 
             DirectionIndicator(
@@ -297,8 +257,6 @@ private fun neighbourLabel(page: PageInfo, gesture: SwipeDirection): String {
     return "$x,$y"
 }
 
-private const val HOME_COORD_X = 0
-private const val HOME_COORD_Y = 0
 private const val WALL_FEEDBACK_MS = 450L
 private const val FLASH_FADE_IN_MS = 80
 private const val FLASH_FADE_OUT_MS = 220

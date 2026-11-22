@@ -32,7 +32,8 @@ class BackupEditorRoundTripTest {
           ],
           "items": [
             {"pageCoordX": 0, "pageCoordY": 0, "itemType": "WIDGET", "col": 1, "row": 2, "colSpan": 4, "rowSpan": 2, "referenceId": "builtin:APP_LIST", "allowOverlap": true, "appListPackages": " com.b \n com.a \n com.a "},
-            {"pageCoordX": 1, "pageCoordY": 0, "itemType": "WIDGET", "col": 3, "row": 1, "colSpan": 2, "rowSpan": 2, "referenceId": "builtin:CLOCK", "allowOverlap": false}
+            {"pageCoordX": 1, "pageCoordY": 0, "itemType": "WIDGET", "col": 3, "row": 1, "colSpan": 2, "rowSpan": 2, "referenceId": "builtin:CLOCK", "allowOverlap": false},
+            {"pageCoordX": 0, "pageCoordY": 0, "itemType": "WIDGET", "col": 1, "row": 4, "colSpan": 2, "rowSpan": 2, "referenceId": "builtin:PAGE_INFO", "allowOverlap": true}
           ],
           "customizations": []
         }
@@ -60,6 +61,13 @@ class BackupEditorRoundTripTest {
         assertEquals(BuiltInWidgetKind.CLOCK, clock.widgetKind)
         assertEquals("builtin:CLOCK", clock.referenceId)
         assertNull(clock.appListPackages)
+
+        val pageInfo = normalized.first { it.referenceId.endsWith("PAGE_INFO") }
+        assertEquals(BuiltInWidgetKind.PAGE_INFO, pageInfo.widgetKind)
+        assertEquals("builtin:PAGE_INFO", pageInfo.referenceId)
+        assertEquals(2, pageInfo.colSpan)
+        assertEquals(2, pageInfo.rowSpan)
+        assertNull(pageInfo.appListPackages)
     }
 
     @Test

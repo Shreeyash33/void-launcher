@@ -18,9 +18,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.ark.voidlauncher.data.db.GridItemEntity
 
 /**
  * Visual grid guide shown while items are being edited. Dotted boundary lines
@@ -56,6 +59,38 @@ internal fun GridGuide(
                     ),
                 )
             }
+        }
+    }
+}
+
+/**
+ * Faint outlines of every item's stored cell extents, drawn above widget content
+ * so overlapping spans stay legible. This layer has no pointer input and never
+ * consumes a tap; the selected item's stronger border is drawn by the item itself.
+ */
+@Composable
+internal fun ItemBoundsOverlay(
+    items: List<GridItemEntity>,
+    cols: Int,
+    rows: Int,
+    modifier: Modifier = Modifier,
+) {
+    val color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+    Canvas(modifier = modifier) {
+        if (cols <= 0 || rows <= 0) return@Canvas
+        val cellWidth = size.width / cols.toFloat()
+        val cellHeight = size.height / rows.toFloat()
+        val stroke = Stroke(width = 1.dp.toPx())
+        items.forEach { item ->
+            drawRect(
+                color = color,
+                topLeft = Offset(item.col * cellWidth, item.row * cellHeight),
+                size = Size(
+                    item.colSpan.coerceAtLeast(1) * cellWidth,
+                    item.rowSpan.coerceAtLeast(1) * cellHeight,
+                ),
+                style = stroke,
+            )
         }
     }
 }

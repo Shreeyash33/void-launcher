@@ -1,6 +1,8 @@
 package com.ark.voidlauncher.data.backup
 
 import com.ark.voidlauncher.data.db.AppCustomizationEntity
+import com.ark.voidlauncher.domain.BuiltInWidgetKind
+import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.CustomPalette
 import com.ark.voidlauncher.domain.EdgeInfo
 import com.ark.voidlauncher.domain.GridItemType
@@ -238,5 +240,32 @@ class BackupValidatorTest {
         )
 
         assertHasError(result, "INVALID CUSTOM WIDGET REFERENCE")
+    }
+
+    @Test
+    fun pageInfoSentinelWithDefaultSpanIsAccepted() {
+        val base = validPayload()
+        val kind = BuiltInWidgetKind.PAGE_INFO
+        val span = BuiltInWidgets.defaultSpan(kind)
+        val result = BackupValidator.validate(
+            base.copy(
+                items = listOf(
+                    BackedUpItem(
+                        pageCoordX = 0,
+                        pageCoordY = 0,
+                        itemType = GridItemType.WIDGET,
+                        col = 1,
+                        row = 1,
+                        colSpan = span.colSpan,
+                        rowSpan = span.rowSpan,
+                        referenceId = BuiltInWidgets.reference(kind),
+                        allowOverlap = true,
+                        widgetKind = kind,
+                    ),
+                ),
+            ),
+        )
+
+        assertTrue(result.errors.toString(), result.isValid)
     }
 }

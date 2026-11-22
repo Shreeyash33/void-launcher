@@ -39,10 +39,10 @@ import com.ark.voidlauncher.domain.SwipeDirection
 import kotlin.math.roundToInt
 
 /**
- * One page as seen from above: title, coordinate, optional HOME/HERE tags and item count.
- * A tap selects the page; a long press selects it for dragging and a following drag
- * reports map-space deltas. The four navigation arrows live outside the tile in
- * [DirectionToggle] so they never trigger a tap or a drag.
+ * One page as seen from above: title, coordinate, page type, optional HOME/HERE/HOLD
+ * tags and item count. A tap selects the page; a long press selects it for dragging
+ * and a following drag reports map-space deltas. The four navigation arrows live
+ * outside the tile in [DirectionToggle] so they never trigger a tap or a drag.
  *
  * [center] is the cell centre in map-space pixels; the enclosing map layer applies
  * the shared pan/zoom transform, so this cell only positions itself.
@@ -54,6 +54,7 @@ internal fun PageCell(
     cellHeightPx: Float,
     titleLabel: String,
     coordLabel: String,
+    typeLabel: String,
     isHome: Boolean,
     isCurrent: Boolean,
     showCoordDetail: Boolean = true,
@@ -145,6 +146,13 @@ internal fun PageCell(
                     overflow = TextOverflow.Clip,
                 )
             }
+            Text(
+                text = typeLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = contentColor.copy(alpha = 0.75f),
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+            )
             Row {
                 if (isHome) {
                     Text(

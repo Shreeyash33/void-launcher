@@ -17,8 +17,19 @@ data class DefaultEdge(
     val toY: Int,
 )
 
+/** One built-in widget placed by the canonical fresh-install / RESET ALL layout. */
+data class DefaultBuiltInItem(
+    val kind: BuiltInWidgetKind,
+    val coordX: Int,
+    val coordY: Int,
+    val col: Int,
+    val row: Int,
+    val colSpan: Int,
+    val rowSpan: Int,
+)
+
 /**
- * Single source of truth for the five-page starter map.
+ * Single source of truth for the five-page starter map and its built-in widget.
  *
  * Both Room's fresh-install seed callback and [com.ark.voidlauncher.data.repository.LauncherRepository.resetToDefault]
  * build from this definition so a reset can never drift from a new install.
@@ -47,4 +58,24 @@ object DefaultLayout {
     )
 
     val home: DefaultPage get() = pages.first { it.pageType == PageType.HOME }
+
+    /**
+     * Built-ins seeded only for a fresh install or RESET ALL. Upgrades and a
+     * silently missing origin page must never re-add an item the user deleted.
+     */
+    val items: List<DefaultBuiltInItem> = run {
+        val kind = BuiltInWidgetKind.PAGE_INFO
+        val span = BuiltInWidgets.defaultSpan(kind)
+        listOf(
+            DefaultBuiltInItem(
+                kind = kind,
+                coordX = home.coordX,
+                coordY = home.coordY,
+                col = 1,
+                row = 1,
+                colSpan = span.colSpan,
+                rowSpan = span.rowSpan,
+            ),
+        )
+    }
 }

@@ -45,8 +45,10 @@ import kotlin.math.abs
  * slides in from the opposite side, and [onPageChanged] is invoked with the
  * *stored* edge direction. When there is no destination (a "wall"), haptic
  * feedback fires and [onWallHit] is called so the host can show a visual cue.
- * A double tap calls [onHomeRequested], and a long press on empty space calls
- * [onLongPress] to open the overview map.
+ * A double tap calls [onHomeRequested]; a long press on empty space calls
+ * [onLongPress], whose behaviour is supplied by the host (by default it opens
+ * the page grid editor). A pending floating widget preview occupies
+ * [floatingSpanX] by [floatingSpanY] cells.
  *
  * While [editing] is true all page gestures are suspended: the canvas becomes
  * a plain editing surface where items handle their own drag/tap gestures and
@@ -80,6 +82,8 @@ fun SpatialPageCanvas(
     onEmptyTap: () -> Unit = {},
     floatingKind: BuiltInWidgetKind? = null,
     floatingPoint: Offset? = null,
+    floatingSpanX: Int = 1,
+    floatingSpanY: Int = 1,
 ) {
     val currentPage = remember(pages, currentPageId) {
         pages.firstOrNull { it.pageId == currentPageId }
@@ -226,6 +230,8 @@ fun SpatialPageCanvas(
                     onEmptyTap = onEmptyTap,
                     floatingKind = floatingKind,
                     floatingPoint = floatingPoint,
+                    floatingSpanX = floatingSpanX,
+                    floatingSpanY = floatingSpanY,
                 )
             }
         }

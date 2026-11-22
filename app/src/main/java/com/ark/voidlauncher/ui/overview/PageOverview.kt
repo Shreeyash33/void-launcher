@@ -281,6 +281,7 @@ fun PageOverview(
                         cellHeightPx = cellHeightPx,
                         titleLabel = page.displayTitle,
                         coordLabel = "${page.coordX},${page.coordY}",
+                        typeLabel = page.pageType.name,
                         isHome = page.pageId == homePageId,
                         isCurrent = page.pageId == currentPageId,
                         isSelected = page.pageId == selectedPageId,

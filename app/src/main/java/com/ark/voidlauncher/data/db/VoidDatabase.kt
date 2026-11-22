@@ -8,8 +8,10 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.ark.voidlauncher.data.background.BackgroundDao
 import com.ark.voidlauncher.data.background.BackgroundEntity
+import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.DefaultLayout
 import com.ark.voidlauncher.domain.DefaultPage
+import com.ark.voidlauncher.domain.GridItemType
 import com.ark.voidlauncher.domain.PageType
 
 @Database(
@@ -150,6 +152,31 @@ abstract class VoidDatabase : RoomDatabase() {
 
         private fun seedDefaultMap(db: SupportSQLiteDatabase) {
             seedUpgradeMap(db)
+            // Fresh installs only: upgrades through seedUpgradeMap and the onOpen
+            // safety net deliberately leave the user's grid items untouched.
+            seedDefaultItems(db)
+        }
+
+        private fun seedDefaultItems(db: SupportSQLiteDatabase) {
+            DefaultLayout.items.forEach { item ->
+                val pageId = pageIdAt(db, item.coordX, item.coordY) ?: return@forEach
+                db.execSQL(
+                    "INSERT INTO `grid_items` " +
+                        "(`pageId`, `itemType`, `gridCol`, `gridRow`, `colSpan`, `rowSpan`, " +
+                        "`referenceId`, `allowOverlap`, `widgetKind`) " +
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+                    arrayOf<Any>(
+                        pageId,
+                        GridItemType.WIDGET.name,
+                        item.col,
+                        item.row,
+                        item.colSpan,
+                        item.rowSpan,
+                        BuiltInWidgets.reference(item.kind),
+                        item.kind.name,
+                    ),
+                )
+            }
         }
 
         private fun seedOriginIfMissing(db: SupportSQLiteDatabase) {

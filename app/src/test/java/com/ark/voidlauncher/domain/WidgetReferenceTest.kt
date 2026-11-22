@@ -39,12 +39,12 @@ class WidgetReferenceTest {
 
     @Test
     fun builtInSentinelHasNoPortableProvider() {
-        val sentinel = BuiltInWidgets.reference(BuiltInWidgetKind.APP_LIST)
-
-        assertNull(WidgetReference.portableProvider(sentinel))
-        assertNull(
-            WidgetReference.portableProvider(WidgetReference.PLACEHOLDER_PREFIX + sentinel),
-        )
+        BuiltInWidgetKind.entries.map(BuiltInWidgets::reference).forEach { sentinel ->
+            assertNull(WidgetReference.portableProvider(sentinel))
+            assertNull(
+                WidgetReference.portableProvider(WidgetReference.PLACEHOLDER_PREFIX + sentinel),
+            )
+        }
     }
 
     @Test

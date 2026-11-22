@@ -27,6 +27,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.awaitEachGesture
+import androidx.compose.ui.input.pointer.awaitFirstDown
+import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
@@ -51,6 +55,10 @@ import kotlin.math.roundToInt
  * drawn on top, which is what makes overlapping widgets stack predictably.
  * Conflict prevention lives in PlacementResolver - this composable simply
  * draws the items it is given and reports candidate moves to its host.
+ *
+ * While editing, faint outlines show every item's stored extents above the
+ * widget content, then the selected item's resize handles are drawn on top.
+ * A floating preview may span [floatingSpanX] by [floatingSpanY] cells.
  */
 @Composable
 fun PageGrid(
@@ -70,10 +78,18 @@ fun PageGrid(
     onEmptyTap: () -> Unit = {},
     floatingKind: BuiltInWidgetKind? = null,
     floatingPoint: Offset? = null,
+    floatingSpanX: Int = 1,
+    floatingSpanY: Int = 1,
 ) {
     // Items mark every interaction; an empty tap that follows one is a tap on
     // an item that bubbled through, not a request to leave the editor.
     var lastItemTouch by remember { mutableStateOf(0L) }
+
+    // The long press that opened the editor must not be read as an empty tap
+    // when the finger is released.
+    LaunchedEffect(editing) {
+        if (editing) lastItemTouch = System.nanoTime()
+    }
 
     fun markTouch() {
         lastItemTouch = System.nanoTime()
@@ -108,17 +124,22 @@ fun PageGrid(
             GridGuide(cols = cols, rows = rows, modifier = Modifier.fillMaxSize())
         }
 
+        // Shared live geometry keeps the item, its bounds and its handles in sync.
+        val itemStates = remember { mutableMapOf<Long, ItemVisualState>() }
+
         items.forEach { item ->
+            val state = itemStates.getOrPut(item.itemId) {
+                ItemVisualState(GridGeometry(item.col, item.row, item.colSpan, item.rowSpan))
+            }
             EditableGridItem(
                 item = item,
+                state = state,
                 cellWidth = cellWidth,
                 cellHeight = cellHeight,
                 cellWidthPx = cellWidthPx,
                 cellHeightPx = cellHeightPx,
                 corner = corner,
                 density = density,
-                maxCols = cols,
-                maxRows = rows,
                 editing = editing,
                 selected = editing && selectedItemId == item.itemId,
                 onTap = {
@@ -138,16 +159,65 @@ fun PageGrid(
                     markTouch()
                     onMoveItem(item, col, row)
                 },
-                onResize = { geometry ->
-                    markTouch()
-                    onResizeItem(geometry)
-                },
                 onWidgetAction = {
                     markTouch()
                     onWidgetAction(item)
                 },
                 widgetContent = widgetContent,
             )
+        }
+
+        // Stored extents sit above all widget content; this Canvas has no pointer
+        // input, so it never steals a tap from an app row underneath it.
+        if (editing) {
+            ItemBoundsOverlay(
+                items = items,
+                cols = cols,
+                rows = rows,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+
+        // Handles come last so the faint bounds never hide their touch targets.
+        if (editing) {
+            val selectedItem = items.firstOrNull { it.itemId == selectedItemId }
+            val selectedState = selectedItem?.let { itemStates[it.itemId] }
+            if (selectedItem != null && selectedState != null) {
+                val base = GridGeometry(
+                    selectedItem.col,
+                    selectedItem.row,
+                    selectedItem.colSpan,
+                    selectedItem.rowSpan,
+                )
+                Box(
+                    modifier = Modifier
+                        .offset {
+                            IntOffset(
+                                (cellWidth * selectedState.geometry.col).roundToPx() +
+                                    selectedState.dragOffset.x.roundToInt(),
+                                (cellHeight * selectedState.geometry.row).roundToPx() +
+                                    selectedState.dragOffset.y.roundToInt(),
+                            )
+                        }
+                        .width(cellWidth * selectedState.geometry.spanX.coerceAtLeast(1))
+                        .height(cellHeight * selectedState.geometry.spanY.coerceAtLeast(1)),
+                ) {
+                    ResizeHandles(
+                        key = selectedItem.itemId,
+                        base = base,
+                        cellWidthPx = cellWidthPx,
+                        cellHeightPx = cellHeightPx,
+                        maxCols = cols,
+                        maxRows = rows,
+                        onPreview = { selectedState.geometry = it },
+                        onCommit = { target ->
+                            markTouch()
+                            if (!onResizeItem(target)) selectedState.geometry = base
+                        },
+                        onTouched = ::markTouch,
+                    )
+                }
+            }
         }
 
         if (floatingKind != null && floatingPoint != null) {
@@ -159,6 +229,8 @@ fun PageGrid(
                 cellWidthPx = cellWidthPx,
                 cellHeightPx = cellHeightPx,
                 corner = corner,
+                spanX = floatingSpanX,
+                spanY = floatingSpanY,
             )
         }
     }
@@ -172,53 +244,57 @@ data class GridGeometry(
     val spanY: Int,
 )
 
+/** Live drag/resize geometry shared with the boundary overlay and resize handles. */
+private class ItemVisualState(initial: GridGeometry) {
+    var dragOffset by mutableStateOf(Offset.Zero)
+    var geometry by mutableStateOf(initial)
+}
+
 /**
- * One item plus its transparent gesture layer. The drag delta lives here so
- * the widget content, frame and selection outline all move together.
+ * One item plus its transparent gesture layer. The drag delta lives in [state]
+ * so the widget content, frame, bounds and selection outline move together.
  */
 @Composable
 private fun EditableGridItem(
     item: GridItemEntity,
+    state: ItemVisualState,
     cellWidth: Dp,
     cellHeight: Dp,
     cellWidthPx: Int,
     cellHeightPx: Int,
     corner: Shape,
     density: Density,
-    maxCols: Int,
-    maxRows: Int,
     editing: Boolean,
     selected: Boolean,
     onTap: () -> Unit,
     onLongPress: () -> Unit,
     onItemTouched: () -> Unit,
     onMove: (Int, Int) -> Boolean,
-    onResize: (GridGeometry) -> Boolean,
     onWidgetAction: () -> Unit,
     widgetContent: @Composable (GridItemEntity) -> Unit,
 ) {
-    var dragOffset by remember(item.itemId) { mutableStateOf(Offset.Zero) }
     val base = GridGeometry(item.col, item.row, item.colSpan, item.rowSpan)
-    var geometry by remember(item.itemId) { mutableStateOf(base) }
     val hasAction = item.widgetKind == BuiltInWidgetKind.APP_LIST ||
         BuiltInWidgets.fromReference(item.referenceId) == BuiltInWidgetKind.APP_LIST
-    val boxWidth = cellWidth * geometry.spanX.coerceAtLeast(1)
+    val boxWidth = cellWidth * state.geometry.spanX.coerceAtLeast(1)
 
     LaunchedEffect(item.itemId, item.col, item.row, item.colSpan, item.rowSpan) {
-        dragOffset = Offset.Zero
-        geometry = base
+        state.dragOffset = Offset.Zero
+        state.geometry = base
     }
 
     Box(
         modifier = Modifier
             .offset {
                 IntOffset(
-                    (cellWidth * geometry.col).roundToPx() + dragOffset.x.roundToInt(),
-                    (cellHeight * geometry.row).roundToPx() + dragOffset.y.roundToInt(),
+                    (cellWidth * state.geometry.col).roundToPx() +
+                        state.dragOffset.x.roundToInt(),
+                    (cellHeight * state.geometry.row).roundToPx() +
+                        state.dragOffset.y.roundToInt(),
                 )
             }
-            .width(cellWidth * geometry.spanX.coerceAtLeast(1))
-            .height(cellHeight * geometry.spanY.coerceAtLeast(1))
+            .width(cellWidth * state.geometry.spanX.coerceAtLeast(1))
+            .height(cellHeight * state.geometry.spanY.coerceAtLeast(1))
             .then(
                 if (selected) {
                     Modifier.border(2.dp, MaterialTheme.colorScheme.primary, corner)
@@ -259,19 +335,58 @@ private fun EditableGridItem(
                     contentDescription = "GRID ITEM ${item.itemType.name} " +
                         "${item.referenceId} AT ${item.col},${item.row}"
                 }
-                .pointerInput(item.itemId, hasAction, boxWidth, onTap, onLongPress) {
-                    detectTapGestures(
-                        onTap = { at ->
-                            val xDp = with(density) { at.x.toDp() }
-                            val yDp = with(density) { at.y.toDp() }
-                            if (hasAction && xDp >= boxWidth - ACTION_ZONE && yDp <= ACTION_ZONE) {
-                                onWidgetAction()
-                            } else {
-                                onTap()
+                .pointerInput(item.itemId, hasAction, boxWidth, onTap, onLongPress, editing) {
+                    if (!editing && hasAction) {
+                        // APP_LIST rows in widgetContent own plain taps and the
+                        // action zone. Only long press is handled here, without
+                        // consuming the down/up of ordinary taps.
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val pointerId = down.id
+                            val slop = viewConfiguration.touchSlop
+                            // The scope's timeout is safe inside awaitEachGesture;
+                            // null means the press survived to the long-press delay.
+                            val longPressed = withTimeoutOrNull(
+                                viewConfiguration.longPressTimeoutMillis,
+                            ) {
+                                var waiting = true
+                                while (waiting) {
+                                    val event = awaitPointerEvent(PointerEventPass.Main)
+                                    val change = event.changes.firstOrNull { it.id == pointerId }
+                                    waiting = change != null && change.pressed &&
+                                        (change.position - down.position)
+                                            .getDistanceSquared() <= slop * slop
+                                }
+                                false // Released or moved before the timeout.
+                            } ?: true
+                            if (longPressed) {
+                                onLongPress()
+                                down.consume()
+                                var pressing = true
+                                while (pressing) {
+                                    val event = awaitPointerEvent(PointerEventPass.Main)
+                                    val change = event.changes.firstOrNull { it.id == pointerId }
+                                    change?.consume()
+                                    pressing = change?.pressed == true
+                                }
                             }
-                        },
-                        onLongPress = { onLongPress() },
-                    )
+                        }
+                    } else {
+                        detectTapGestures(
+                            onTap = { at ->
+                                val xDp = with(density) { at.x.toDp() }
+                                val yDp = with(density) { at.y.toDp() }
+                                if (hasAction &&
+                                    xDp >= boxWidth - ACTION_ZONE && yDp <= ACTION_ZONE
+                                ) {
+                                    onWidgetAction()
+                                } else {
+                                    onTap()
+                                }
+                            },
+                            onLongPress = { onLongPress() },
+                        )
+                    }
                 }
                 .pointerInput(
                     item.itemId,
@@ -293,33 +408,17 @@ private fun EditableGridItem(
                             val col = item.col + (total.x / cellWidthPx.toFloat()).roundToInt()
                             val row = item.row + (total.y / cellHeightPx.toFloat()).roundToInt()
                             onMove(col, row)
-                            dragOffset = Offset.Zero
+                            state.dragOffset = Offset.Zero
                         },
                         onDragCancel = {
-                            dragOffset = Offset.Zero
+                            state.dragOffset = Offset.Zero
                         },
                     ) { _, amount ->
                         total += amount
-                        dragOffset = total
+                        state.dragOffset = total
                     }
                 },
         )
-
-        if (selected && editing) {
-            ResizeHandles(
-                key = item.itemId,
-                base = base,
-                cellWidthPx = cellWidthPx,
-                cellHeightPx = cellHeightPx,
-                maxCols = maxCols,
-                maxRows = maxRows,
-                onPreview = { geometry = it },
-                onCommit = { target ->
-                    if (!onResize(target)) geometry = base
-                },
-                onTouched = onItemTouched,
-            )
-        }
     }
 }
 
@@ -494,6 +593,8 @@ private fun BoxScope.FloatingWidget(
     cellWidthPx: Int,
     cellHeightPx: Int,
     corner: Shape,
+    spanX: Int = 1,
+    spanY: Int = 1,
 ) {
     Box(
         modifier = Modifier
@@ -503,8 +604,8 @@ private fun BoxScope.FloatingWidget(
                     point.y.roundToInt() - cellHeightPx / 2,
                 )
             }
-            .width(cellWidth)
-            .height(cellHeight)
+            .width(cellWidth * spanX.coerceAtLeast(1))
+            .height(cellHeight * spanY.coerceAtLeast(1))
             .border(2.dp, MaterialTheme.colorScheme.primary, corner)
             .background(
                 MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),

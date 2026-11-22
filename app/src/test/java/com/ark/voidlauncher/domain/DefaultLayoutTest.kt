@@ -93,4 +93,22 @@ class DefaultLayoutTest {
             )
         }
     }
+
+    @Test
+    fun `default layout seeds one page info widget on home`() {
+        assertEquals(1, DefaultLayout.items.size)
+        val item = DefaultLayout.items.single()
+
+        assertEquals(BuiltInWidgetKind.PAGE_INFO, item.kind)
+        assertEquals(DefaultLayout.home.coordX, item.coordX)
+        assertEquals(DefaultLayout.home.coordY, item.coordY)
+        assertEquals(1, item.col)
+        assertEquals(1, item.row)
+        assertEquals(2, item.colSpan)
+        assertEquals(2, item.rowSpan)
+
+        val span = BuiltInWidgets.defaultSpan(BuiltInWidgetKind.PAGE_INFO)
+        assertEquals(span.colSpan, item.colSpan)
+        assertEquals(span.rowSpan, item.rowSpan)
+    }
 }

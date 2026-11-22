@@ -50,6 +50,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -73,10 +74,12 @@ import com.ark.voidlauncher.data.backup.DeviceInventoryManager
 import com.ark.voidlauncher.data.backup.InventoryApp
 import com.ark.voidlauncher.data.backup.InventorySystemWidget
 import com.ark.voidlauncher.data.background.BackgroundRepository
+import com.ark.voidlauncher.data.db.AppCustomizationEntity
 import com.ark.voidlauncher.data.db.GridItemEntity
 import com.ark.voidlauncher.data.db.VoidDatabase
 import com.ark.voidlauncher.data.migration.DataStoreToRoomMigration
 import com.ark.voidlauncher.data.repository.LauncherRepository
+import com.ark.voidlauncher.domain.AppListAppearance
 import com.ark.voidlauncher.domain.BuiltInWidgetKind
 import com.ark.voidlauncher.domain.BuiltInWidgets
 import com.ark.voidlauncher.domain.CUSTOM_WIDGET_RUNTIME_WEBVIEW
@@ -116,6 +119,9 @@ import com.ark.voidlauncher.ui.background.BackgroundEditorSheet
 import com.ark.voidlauncher.ui.background.PageBackgroundRenderer
 import com.ark.voidlauncher.ui.customtheme.CustomThemeEditorSheet
 import com.ark.voidlauncher.ui.drawer.AppDrawerOverlay
+import com.ark.voidlauncher.ui.editor.AppAppEditModal
+import com.ark.voidlauncher.ui.editor.AppEditScope
+import com.ark.voidlauncher.ui.editor.AppListWidgetMenuModal
 import com.ark.voidlauncher.ui.editor.AppTypographyEditorSheet
 import com.ark.voidlauncher.ui.overview.PageOverview
 import com.ark.voidlauncher.ui.editor.EditorValidation
@@ -176,6 +182,8 @@ class MainActivity : ComponentActivity() {
             val gestureBindings by prefs.gestureBindings.collectAsState(
                 initial = GestureBindings(),
             )
+            val drawerNicknames by prefs.drawerNicknames.collectAsState(initial = emptyMap())
+            val appListAppearances by prefs.appListAppearances.collectAsState(initial = emptyMap())
             val customWidgets by prefs.customWidgetBundle.collectAsState(
                 initial = CustomWidgetBundle(),
             )
@@ -194,6 +202,25 @@ class MainActivity : ComponentActivity() {
             val edges by repository.edges.collectAsState(initial = emptyList())
             val items by repository.items.collectAsState(initial = emptyList())
             val customizations by repository.customizations.collectAsState(initial = emptyList())
+            // Global nicknames replace the package label everywhere. Drawer-only
+            // nicknames layer on top for the drawer alone; both are DataStore-safe.
+            val launcherApps = remember(apps, customizations) {
+                val nicknames = customizations.associate { it.packageName to it.customNickname }
+                apps.map { app ->
+                    app.copy(
+                        label = nicknames[app.packageName]?.takeIf { it.isNotBlank() }
+                            ?: app.label,
+                    )
+                }
+            }
+            val drawerApps = remember(launcherApps, drawerNicknames) {
+                launcherApps.map { app ->
+                    app.copy(
+                        label = drawerNicknames[app.packageName]?.takeIf { it.isNotBlank() }
+                            ?: app.label,
+                    )
+                }
+            }
             val homeCoord by repository.homeCoord.collectAsState(initial = Pair(0, 0))
             val homePageId by repository.homePageId.collectAsState(initial = VoidDatabase.ORIGIN_PAGE_ID)
             val appDrawerPageId by repository.appDrawerPageId.collectAsState(initial = null)
@@ -210,7 +237,8 @@ class MainActivity : ComponentActivity() {
             var floatingPoint by remember { mutableStateOf<Offset?>(null) }
             var floatingPointerId by remember { mutableStateOf<Long?>(null) }
             var rootSize by remember { mutableStateOf(IntSize.Zero) }
-            var appPickerItemId by remember { mutableStateOf<Long?>(null) }
+            var widgetMenuItemId by remember { mutableStateOf<Long?>(null) }
+            var drawerAppEditPackage by remember { mutableStateOf<String?>(null) }
             var message by remember { mutableStateOf<String?>(null) }
             var overview by remember { mutableStateOf(false) }
             var themePicker by remember { mutableStateOf(false) }
@@ -615,7 +643,8 @@ class MainActivity : ComponentActivity() {
                 selectedCanvasItemId = null
                 resizeItemId = null
                 pendingWidgetKind = null
-                appPickerItemId = null
+                widgetMenuItemId = null
+                drawerAppEditPackage = null
             }
 
             // Back, page changes, and successful drops all clear the pending
@@ -661,7 +690,7 @@ class MainActivity : ComponentActivity() {
             BackHandler(
                 enabled = themePicker || gestureEditor || customThemeEditor || backgroundEditor ||
                     overview || resizeItemId != null || pendingWidgetKind != null ||
-                    appPickerItemId != null || canvasEditing ||
+                    widgetMenuItemId != null || drawerAppEditPackage != null || canvasEditing ||
                     screen != Screen.HOME || editor != Editor.NONE || pageHistory.size > 0,
             ) {
                 when {
@@ -669,7 +698,8 @@ class MainActivity : ComponentActivity() {
                         pendingWidgetKind = null
                         canvasEditing = false
                     }
-                    appPickerItemId != null -> appPickerItemId = null
+                    widgetMenuItemId != null -> widgetMenuItemId = null
+                    drawerAppEditPackage != null -> drawerAppEditPackage = null
                     resizeItemId != null -> resizeItemId = null
                     customThemeEditor -> customThemeEditor = false
                     backgroundEditor -> {
@@ -771,11 +801,14 @@ class MainActivity : ComponentActivity() {
                     message = "WIDGETS CANNOT BE PLACED HERE"
                     return false
                 }
+                val span = BuiltInWidgets.defaultSpan(kind)
                 val candidate = GridItemEntity(
                     pageId = page.pageId,
                     itemType = GridItemType.WIDGET,
                     col = col,
                     row = row,
+                    colSpan = span.colSpan,
+                    rowSpan = span.rowSpan,
                     referenceId = BuiltInWidgets.reference(kind),
                     allowOverlap = true,
                     widgetKind = kind,
@@ -798,6 +831,8 @@ class MainActivity : ComponentActivity() {
                         pageId = placed.first,
                         col = placed.second.col,
                         row = placed.second.row,
+                        colSpan = span.colSpan,
+                        rowSpan = span.rowSpan,
                     )
                 }
                 return true
@@ -818,8 +853,13 @@ class MainActivity : ComponentActivity() {
                         .roundToInt().coerceAtLeast(1)
                     val cellHeightPx = (rootSize.height.toFloat() / page.gridRows)
                         .roundToInt().coerceAtLeast(1)
-                    val col = (point.x / cellWidthPx - 0.5f).roundToInt()
-                    val row = (point.y / cellHeightPx - 0.5f).roundToInt()
+                    val span = pendingWidgetKind?.let(BuiltInWidgets::defaultSpan)
+                    val col = (
+                        point.x / cellWidthPx - (span?.colSpan?.minus(1)?.div(2f) ?: 0.5f)
+                        ).roundToInt()
+                    val row = (
+                        point.y / cellHeightPx - (span?.rowSpan?.minus(1)?.div(2f) ?: 0.5f)
+                        ).roundToInt()
                     dropPendingWidget(col, row)
                 }
             }
@@ -846,11 +886,48 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            fun toggleAppInPicker(packageName: String) {
-                val item = items.firstOrNull { it.itemId == appPickerItemId } ?: return
+            fun toggleAppInWidgetMenu(packageName: String) {
+                val item = items.firstOrNull { it.itemId == widgetMenuItemId } ?: return
                 val current = BuiltInWidgets.decodePackages(item.appListPackages).toMutableSet()
                 if (!current.add(packageName)) current.remove(packageName)
                 scope.launch { repository.setAppListPackages(item.itemId, current.toList()) }
+            }
+
+            /** APP_LIST nicknames use the global scope so they stay portable. */
+            fun setGlobalNickname(packageName: String, nickname: String?) {
+                val existing = customizations.firstOrNull { it.packageName == packageName }
+                val updated = existing?.copy(customNickname = nickname)
+                    ?: AppCustomizationEntity(packageName = packageName, customNickname = nickname)
+                scope.launch {
+                    repository.customizeApp(updated)
+                    prefs.setDrawerNickname(packageName, null)
+                }
+            }
+
+            fun saveDrawerAppEdit(scope: AppEditScope, nickname: String?) {
+                val packageName = drawerAppEditPackage ?: return
+                drawerAppEditPackage = null
+                val existing = customizations.firstOrNull { it.packageName == packageName }
+                scope.launch {
+                    when (scope) {
+                        AppEditScope.GLOBAL -> {
+                            repository.customizeApp(
+                                existing?.copy(customNickname = nickname)
+                                    ?: AppCustomizationEntity(
+                                        packageName = packageName,
+                                        customNickname = nickname,
+                                    ),
+                            )
+                            prefs.setDrawerNickname(packageName, null)
+                        }
+                        AppEditScope.DRAWER_ONLY -> {
+                            if (existing?.customNickname != null) {
+                                repository.customizeApp(existing.copy(customNickname = null))
+                            }
+                            prefs.setDrawerNickname(packageName, nickname)
+                        }
+                    }
+                }
             }
 
             fun openWidgetPicker() {
@@ -990,8 +1067,10 @@ class MainActivity : ComponentActivity() {
                         openWidgetPicker()
                     }
                     GestureTarget.EDITOR -> {
-                        exitCanvasEditor()
-                        editor = Editor.ITEMS
+                        editor = Editor.NONE
+                        canvasEditing = true
+                        selectedCanvasItemId = null
+                        resizeItemId = null
                     }
                     GestureTarget.TOGGLE_COORDINATES -> scope.launch {
                         prefs.setShowCoordinateDetail(!showCoordinateDetail)
@@ -1088,7 +1167,7 @@ class MainActivity : ComponentActivity() {
                             )
                             if (currentPage?.pageType == PageType.APP_DRAWER) {
                                 AppDrawerPage(
-                                    apps = apps,
+                                    apps = drawerApps,
                                     pinned = pinned,
                                     favorites = customizations.filter { it.isFavorite }
                                         .map { it.packageName }.toSet(),
@@ -1108,7 +1187,7 @@ class MainActivity : ComponentActivity() {
                                             gestureBindings.actionFor(
                                                 drawerCoord, GestureTrigger.LONG_PRESS,
                                             ),
-                                        ) { overview = true }
+                                        ) { /* Drawer pages have no grid editor. */ }
                                     },
                                     onBack = {
                                         if (homePageId != currentPageId) {
@@ -1130,7 +1209,9 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onLaunch = { appRepository.launch(it) },
                                     onTogglePin = { scope.launch { prefs.togglePinned(it) } },
-                                    onCustomize = { editor = Editor.TYPOGRAPHY },
+                                    onCustomize = { packageName ->
+                                        drawerAppEditPackage = packageName
+                                    },
                                 )
                             } else {
                                 HomeScreen(
@@ -1181,7 +1262,12 @@ class MainActivity : ComponentActivity() {
                                         overview = true
                                     },
                                     onLongPress = {
-                                        runGestureAction(longPressAction) { overview = true }
+                                        runGestureAction(longPressAction) {
+                                            editor = Editor.NONE
+                                            canvasEditing = true
+                                            selectedCanvasItemId = null
+                                            resizeItemId = null
+                                        }
                                     },
                                     showCoordinateDetail = showCoordinateDetail,
                                     canvasEditing = canvasEditing,
@@ -1193,15 +1279,24 @@ class MainActivity : ComponentActivity() {
                                     onResizeCanvasItem = { resizeItemId = it.itemId },
                                     onResizeCanvasGeometry = ::resizeCanvasItem,
                                     onWidgetAction = { item ->
-                                        if (
-                                            item.widgetKind == BuiltInWidgetKind.APP_LIST ||
-                                            BuiltInWidgets.fromReference(item.referenceId) ==
-                                            BuiltInWidgetKind.APP_LIST
-                                        ) {
-                                            appPickerItemId = item.itemId
+                                        if (canvasEditing && item.isAppListWidget()) {
+                                            widgetMenuItemId = item.itemId
                                         }
                                     },
-                                    apps = apps,
+                                    onOpenMap = {
+                                        exitCanvasEditor()
+                                        overview = true
+                                    },
+                                    apps = launcherApps,
+                                    labelForPackage = { packageName ->
+                                        launcherApps.firstOrNull { it.packageName == packageName }
+                                            ?.label
+                                            ?: packageName.substringAfterLast('.')
+                                    },
+                                    appListAppearances = appListAppearances,
+                                    onAppListMenu = { item ->
+                                        if (item.isAppListWidget()) widgetMenuItemId = item.itemId
+                                    },
                                     onRemoveCanvasItem = ::removeCanvasItem,
                                     onRebindWidget = ::beginRebindWidget,
                                     onExitCanvasEditor = ::exitCanvasEditor,
@@ -1248,7 +1343,10 @@ class MainActivity : ComponentActivity() {
                                             pendingWidgetKind = null
                                             floatingPointerId = null
                                             floatingPoint = null
-                                            appPickerItemId = null
+                                            widgetMenuItemId = null
+                                            drawerAppEditPackage = null
+                                            prefs.clearDrawerNicknames()
+                                            prefs.clearAppListAppearances()
                                             message = "RESET COMPLETE"
                                         }
                                         .onFailure { message = it.message ?: "RESET FAILED" }
@@ -1388,15 +1486,44 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    val pickerItem = items.firstOrNull { it.itemId == appPickerItemId }
-                    if (pickerItem != null) {
-                        WidgetAppPicker(
-                            apps = apps,
-                            selected = BuiltInWidgets.decodePackages(
-                                pickerItem.appListPackages,
-                            ).toSet(),
-                            onToggle = { packageName -> toggleAppInPicker(packageName) },
-                            onDone = { appPickerItemId = null },
+                    val menuItem = items.firstOrNull { it.itemId == widgetMenuItemId }
+                    if (menuItem != null && menuItem.isAppListWidget()) {
+                        AppListWidgetMenuModal(
+                            itemId = menuItem.itemId,
+                            packages = BuiltInWidgets.decodePackages(menuItem.appListPackages),
+                            apps = launcherApps,
+                            labelForPackage = { packageName ->
+                                launcherApps.firstOrNull { it.packageName == packageName }
+                                    ?.label
+                                    ?: packageName.substringAfterLast('.')
+                            },
+                            appearance = appListAppearances[menuItem.itemId],
+                            onDismiss = { widgetMenuItemId = null },
+                            onTogglePackage = ::toggleAppInWidgetMenu,
+                            onSetNickname = { packageName, nickname ->
+                                setGlobalNickname(packageName, nickname)
+                            },
+                            onAppearanceChange = { appearance ->
+                                scope.launch {
+                                    prefs.setAppListAppearance(menuItem.itemId, appearance)
+                                }
+                            },
+                        )
+                    }
+
+                    val editedDrawerApp = drawerApps.firstOrNull {
+                        it.packageName == drawerAppEditPackage
+                    }
+                    if (editedDrawerApp != null) {
+                        AppAppEditModal(
+                            packageName = editedDrawerApp.packageName,
+                            appLabel = editedDrawerApp.label,
+                            globalNickname = customizations.firstOrNull {
+                                it.packageName == editedDrawerApp.packageName
+                            }?.customNickname,
+                            drawerNickname = drawerNicknames[editedDrawerApp.packageName],
+                            onDismiss = { drawerAppEditPackage = null },
+                            onSave = ::saveDrawerAppEdit,
                         )
                     }
                 }
@@ -1808,6 +1935,10 @@ private suspend fun placeWidget(
     )
 }
 
+private fun GridItemEntity.isAppListWidget(): Boolean =
+    widgetKind == BuiltInWidgetKind.APP_LIST ||
+        BuiltInWidgets.fromReference(referenceId) == BuiltInWidgetKind.APP_LIST
+
 @Composable
 private fun HomeScreen(
     pages: List<PageInfo>,
@@ -1826,6 +1957,7 @@ private fun HomeScreen(
     onEditItems: () -> Unit,
     onOpenWidgetPicker: () -> Unit,
     onLongPress: () -> Unit = {},
+    onOpenMap: () -> Unit = {},
     showCoordinateDetail: Boolean = true,
     canvasEditing: Boolean = false,
     selectedCanvasItemId: Long? = null,
@@ -1835,11 +1967,16 @@ private fun HomeScreen(
     onResizeCanvasGeometry: (GridGeometry) -> Boolean = { false },
     onWidgetAction: (GridItemEntity) -> Unit = {},
     apps: List<AppInfo> = emptyList(),
+    labelForPackage: (String) -> String = { it.substringAfterLast('.') },
+    appListAppearances: Map<Long, AppListAppearance> = emptyMap(),
+    onAppListMenu: (GridItemEntity) -> Unit = {},
     onRemoveCanvasItem: (GridItemEntity) -> Unit = {},
     onRebindWidget: (GridItemEntity) -> Unit = {},
     onExitCanvasEditor: () -> Unit = {},
     floatingKind: BuiltInWidgetKind? = null,
     floatingPoint: Offset? = null,
+    floatingSpanX: Int = 1,
+    floatingSpanY: Int = 1,
     pageBackground: @Composable () -> Unit = {},
 ) {
     val page = pages.firstOrNull { it.pageId == currentPageId } ?: return
@@ -1875,14 +2012,23 @@ private fun HomeScreen(
             onEmptyTap = onExitCanvasEditor,
             floatingKind = floatingKind,
             floatingPoint = floatingPoint,
+            floatingSpanX = floatingSpanX,
+            floatingSpanY = floatingSpanY,
             widgetContent = { item ->
                 val builtIn = item.widgetKind ?: BuiltInWidgets.fromReference(item.referenceId)
                 val customId = WidgetReference.customId(item.referenceId)
                 when {
                     builtIn == BuiltInWidgetKind.CLOCK -> ClockWidgetContent()
+                    builtIn == BuiltInWidgetKind.PAGE_INFO -> PageInfoWidgetContent(
+                        page = page,
+                        showCoordinates = showCoordinateDetail,
+                    )
                     builtIn == BuiltInWidgetKind.APP_LIST -> AppListWidgetContent(
                         packages = BuiltInWidgets.decodePackages(item.appListPackages),
-                        apps = apps,
+                        labelForPackage = labelForPackage,
+                        appearance = appListAppearances[item.itemId],
+                        editing = canvasEditing,
+                        onLaunch = onAppClick,
                     )
                     customId != null -> {
                         val definition = customWidgets.widgets.firstOrNull { it.id == customId }
@@ -1921,31 +2067,6 @@ private fun HomeScreen(
             modifier = Modifier.fillMaxSize(),
         )
 
-        // The page name is primary and always visible; coordinates are optional
-        // secondary detail. Everything else is reachable by long-press or Home.
-        GlassPanel(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 12.dp),
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = page.displayTitle,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                )
-                if (showCoordinateDetail) {
-                    Text(
-                        text = "${page.coordX}, ${page.coordY}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 3.dp),
-                    )
-                }
-            }
-        }
-
         if (canvasEditing) {
             GlassPanel(
                 modifier = Modifier
@@ -1953,14 +2074,24 @@ private fun HomeScreen(
                     .padding(12.dp),
             ) {
                 Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = "MENU",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier
-                            .clickable { menuExpanded = !menuExpanded }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "MAP",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .clickable { onOpenMap() }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                        )
+                        Text(
+                            text = "MENU",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .clickable { menuExpanded = !menuExpanded }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        )
+                    }
                     if (menuExpanded) {
                         EditorMenuItem("APPS", onOpenDrawerPage)
                         EditorMenuItem("EDIT", onEditItems)
@@ -1994,6 +2125,16 @@ private fun HomeScreen(
                         modifier = Modifier.weight(1f),
                     )
                     if (selectedCanvasItem != null) {
+                        if (selectedCanvasItem.isAppListWidget()) {
+                            Text(
+                                text = "MENU",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .clickable { onAppListMenu(selectedCanvasItem) }
+                                    .padding(8.dp),
+                            )
+                        }
                         Text(
                             text = "RESIZE",
                             style = MaterialTheme.typography.labelLarge,
@@ -2276,44 +2417,95 @@ private fun ClockWidgetContent() {
 }
 
 @Composable
-private fun AppListWidgetContent(packages: List<String>, apps: List<AppInfo>) {
-    val labels = remember(packages, apps) {
-        packages.map { pkg ->
-            apps.firstOrNull { it.packageName == pkg }?.label ?: pkg.substringAfterLast('.')
+private fun PageInfoWidgetContent(page: PageInfo, showCoordinates: Boolean) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = page.displayTitle,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (showCoordinates) {
+                Text(
+                    text = "${page.coordX}, ${page.coordY}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (page.pageType == PageType.HOME) {
+                Text(
+                    text = "HOME",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
-    Box(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = "+",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(horizontal = 6.dp, vertical = 2.dp),
-        )
-        if (labels.isEmpty()) {
+}
+
+@Composable
+private fun AppListWidgetContent(
+    packages: List<String>,
+    labelForPackage: (String) -> String,
+    appearance: AppListAppearance?,
+    editing: Boolean,
+    onLaunch: (String) -> Unit,
+) {
+    val accent = remember(appearance?.colorHex) {
+        val hex = appearance?.colorHex?.trim()?.removePrefix("#")
+        if (hex.isNullOrEmpty()) {
+            null
+        } else {
+            runCatching { Color(android.graphics.Color.parseColor("#$hex")) }.getOrNull()
+        }
+    }
+    val rowStyle = if (appearance?.dense == true) {
+        MaterialTheme.typography.labelSmall
+    } else {
+        MaterialTheme.typography.bodySmall
+    }
+    val rowPadding = if (appearance?.dense == true) 4.dp else 8.dp
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                accent?.let { Modifier.background(it.copy(alpha = 0.18f)) }
+                    ?: Modifier,
+            ),
+    ) {
+        if (packages.isEmpty()) {
             Text(
-                text = "TAP + TO ADD APPS",
+                text = "OPEN WIDGET MENU TO ADD APPS",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(6.dp),
+                    .padding(8.dp),
             )
         } else {
-            Column(
+            LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(start = 6.dp, top = 28.dp, end = 6.dp, bottom = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
             ) {
-                labels.take(8).forEach { label ->
+                items(packages, key = { it }) { packageName ->
                     Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        text = labelForPackage(packageName),
+                        style = rowStyle,
+                        color = accent ?: MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !editing) { onLaunch(packageName) }
+                            .padding(vertical = rowPadding),
                     )
                 }
             }
