@@ -904,12 +904,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            fun saveDrawerAppEdit(scope: AppEditScope, nickname: String?) {
+            fun saveDrawerAppEdit(editScope: AppEditScope, nickname: String?) {
                 val packageName = drawerAppEditPackage ?: return
                 drawerAppEditPackage = null
                 val existing = customizations.firstOrNull { it.packageName == packageName }
                 scope.launch {
-                    when (scope) {
+                    when (editScope) {
                         AppEditScope.GLOBAL -> {
                             repository.customizeApp(
                                 existing?.copy(customNickname = nickname)
