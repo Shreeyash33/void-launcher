@@ -1,12 +1,15 @@
 # Changelog
 
-## 2026-11-22 — interaction batch (in progress)
+## 2026-11-22 — interaction batch (complete)
 
 - Long-press on an empty page enters that page's grid editor; the map is reached from an explicit MAP button/binding, not the default long-press.
 - Map page cards label their type (`HOME`, `WIDGET`, `APP_DRAWER`); editor mode outlines every placed widget so overlapping extents are visible.
 - New `PAGE_INFO` built-in widget (2×2) replaces the fixed coordinate badge; `APP_LIST` becomes a 4×3, resizable miniature drawer with launchable rows and an editor modal.
 - Drawer EDIT opens a per-app modal with GLOBAL vs DRAWER-ONLY nickname scope. Drawer-only nicknames and widget appearance are DataStore-only, like gesture bindings.
 - Workflow reminders recorded in `docs/DESIGN_NOTES.md`: sudden restarts, memory below 80%, backup before every revision, serialized low-memory build, subagents, no default HOME, `web_editor/` untracked.
+- Editor `CLEAR`/`SAVE`, APP_LIST `ADD`/`REMOVE`/`CLEAR NAME` and drawer `EDIT`/`PIN`/`REMOVE` now use outlined buttons for clear same-line actions.
+- Page-level tap detection no longer consumes ordinary taps, so app shortcuts and APP_LIST rows receive them; APP_LIST rows own their own tap and long-press and no longer sit under a full-size gesture overlay.
+- Final serialized build green: `.\gradlew --stop` then `.\gradlew --no-daemon --max-workers=1 testDebugUnitTest assembleDebug assembleRelease`. Device checks passed for APP_LIST row tap/long-press, shortcut tap, double-tap HOME, both drawer nickname scopes, and RESET ALL seeding `PAGE_INFO`.
 
 ## 0.6.0 — current release (2026-11-19)
 
