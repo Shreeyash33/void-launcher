@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-11-22 — editor navigation fixes
+
+- Editor MENU → WIDGETS now opens the widget picker directly instead of the page map.
+- The bottom editor hint appears only on the first editor session; it is hidden from the second session onward (persisted in DataStore, outside backup v1).
+- Editor mode is now sticky across page swipes: the destination page opens in editor mode, per-page selection and menus reset, and only an explicit exit (empty tap, Back, or navigation action) leaves it. Page swipes from empty space no longer consume the pointer, so item drags and resize handles still work.
+
 ## 2026-11-22 — interaction batch (complete)
 
 - Long-press on an empty page enters that page's grid editor; the map is reached from an explicit MAP button/binding, not the default long-press.
